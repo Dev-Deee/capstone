@@ -1,0 +1,12 @@
+package com.dayo.capstone.cadence.common.enums;
+
+public enum Permission {
+    MANAGE_COHORTS,
+    MANAGE_SUBJECTS,
+    MANAGE_FACILITATOR_ASSIGNMENTS,
+    MANAGE_INVITE_CODES,
+    MANAGE_RESUMPTION_CODES,
+    VIEW_FEEDBACK,
+    MANAGE_USERS,
+    VIEW_INSTITUTION_ANALYTICS
+}

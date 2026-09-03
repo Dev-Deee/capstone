@@ -3,6 +3,7 @@ package com.dayo.capstone.cadence;
 import io.github.cdimascio.dotenv.Dotenv;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
@@ -25,7 +26,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *   domain events fan out to NotificationListener, CohortEventListener,
  *   and AuditLogListener independently via Spring's ApplicationEventPublisher.
  */
-@SpringBootApplication
+@SpringBootApplication(exclude = { UserDetailsServiceAutoConfiguration.class })
+
 @EnableScheduling
 @EnableAsync
 public class CadenceApplication {
