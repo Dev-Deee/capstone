@@ -1,0 +1,41 @@
+package com.dayo.capstone.cadence.security.dto.request;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class RegisterRequest {
+    @NotBlank(message = "Invite code is required")
+    private String inviteCode;
+
+    @NotBlank(message = "First name is required")
+    private String firstName;
+
+    private String middleName;
+
+    @NotBlank(message = "Last name is required")
+    private String lastName;
+
+    @NotBlank(message = "Email is required")
+    @Email(message = "Email must be valid")
+    private String email;
+
+    @NotBlank(message = "Phone number is required")
+    private String phoneNumber;
+
+    // RegisterRequest.java — add
+    private String institutionStudentId;  // optional, self-entered, no
+    // validation beyond basic format
+    // sanity (no uniqueness generation
+    // logic — that's the institution's
+    // scheme, not ours to enforce)
+
+    @NotBlank(message = "Password is required")
+    private String password;
+
+    @NotBlank(message = "Consent must be explicitly given")
+    private Boolean consentGiven;
+}
