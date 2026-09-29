@@ -65,6 +65,7 @@ public class FacilitatorCohortService {
         return toResponse(saved);
     }
 
+    @Transactional(readOnly = true)
     public List<FacilitatorCohortResponse> getForFacilitator(UUID facilitatorPublicId) {
         User facilitator = userService.findEntityByPublicId(facilitatorPublicId);
         return facilitatorCohortRepository.findByFacilitatorAndIsActiveTrue(facilitator).stream()

@@ -1,11 +1,10 @@
 package com.dayo.capstone.cadence.user.service;
 
+import com.dayo.capstone.cadence.cohort.repository.CohortEnrollmentRepository;
 import com.dayo.capstone.cadence.common.service.FileStorageService;
 import com.dayo.capstone.cadence.user.enums.Role;
 import com.dayo.capstone.cadence.common.exception.ResourceNotFoundException;
-import com.dayo.capstone.cadence.institution.model.Institution;
 import com.dayo.capstone.cadence.institution.service.InstitutionService;
-import com.dayo.capstone.cadence.user.dto.request.CreateUserRequest;
 import com.dayo.capstone.cadence.user.dto.response.UserResponse;
 import com.dayo.capstone.cadence.user.model.User;
 import com.dayo.capstone.cadence.user.repository.UserRepository;
@@ -28,33 +27,8 @@ public class UserService {
     private final UserRepository userRepository;
     private final InstitutionService institutionService;
     private final PasswordEncoder passwordEncoder;
-    private final FileStorageService fileStorageService; // add to injection
-
-    @Transactional
-    public UserResponse create(CreateUserRequest request) {
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new IllegalArgumentException("Email already registered: " + request.getEmail());
-        }
-
-        Institution institution = institutionService
-                .findEntityByPublicId(UUID.fromString(request.getInstitutionPublicId()));
-
-        User user = new User();
-        user.setInstitution(institution);
-        user.setFirstName(request.getFirstName());
-        user.setMiddleName(request.getMiddleName());
-        user.setLastName(request.getLastName());
-        user.setEmail(request.getEmail());
-        user.setPhoneNumber(request.getPhoneNumber());
-        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
-        user.setRoles(parseRoles(request.getRoles()));
-
-        User saved = userRepository.save(user);
-        log.info("User created: publicId={}, roles={}", saved.getPublicId(), saved.getRoles());
-
-        return toResponse(saved);
-    }
-
+    private final FileStorageService fileStorageService;
+    private final CohortEnrollmentRepository cohortEnrollmentRepository;
 
     @Transactional
     public UserResponse updateProfileImage(UUID userPublicId, byte[] imageBytes, String filename) {
@@ -74,13 +48,24 @@ public class UserService {
         return toResponse(user);
     }
 
+    @Transactional(readOnly = true)
     public UserResponse getByPublicId(UUID publicId) {
         return toResponse(findEntityByPublicId(publicId));
     }
 
+    @Transactional(readOnly = true)
     public List<UserResponse> getAll() {
         return userRepository.findAll().stream()
                 .filter(u -> !u.isDeleted())
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserResponse> getFacilitators() {
+        return userRepository.findAll().stream()
+                .filter(u -> !u.isDeleted())
+                .filter(u -> u.hasRole(Role.FACILITATOR))
                 .map(this::toResponse)
                 .toList();
     }
@@ -119,6 +104,19 @@ public class UserService {
     }
 
     private UserResponse toResponse(User user) {
+        UUID cohortPublicId = null;
+        String cohortName = null;
+
+        // Cohort membership is a student-only concept — Facilitators/Admins have
+        // no CohortEnrollment row, so skip the lookup entirely for non-students.
+        if (user.hasRole(Role.STUDENT)) {
+            var enrollment = cohortEnrollmentRepository.findByStudentAndIsActiveTrue(user);
+            if (enrollment.isPresent()) {
+                cohortPublicId = enrollment.get().getCohort().getPublicId();
+                cohortName = enrollment.get().getCohort().getName();
+            }
+        }
+
         return UserResponse.builder()
                 .publicId(user.getPublicId())
                 .institutionPublicId(user.getInstitution().getPublicId())
@@ -128,10 +126,14 @@ public class UserService {
                 .fullName(user.getFullName())
                 .email(user.getEmail())
                 .phoneNumber(user.getPhoneNumber())
+                .profileImageUrl(user.getProfileImageUrl())
+                .phoneVerified(user.isPhoneVerified())
+                .webAuthnCapable(user.isWebAuthnCapable())
                 .roles(user.getRoles())
                 .consentGiven(user.isConsentGiven())
-                .webAuthnCapable(user.isWebAuthnCapable())
                 .createdAt(user.getCreatedAt())
+                .cohortPublicId(cohortPublicId)
+                .cohortName(cohortName)
                 .build();
     }
 }

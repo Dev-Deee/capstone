@@ -13,4 +13,6 @@ public interface InstitutionRepository extends JpaRepository<Institution, Long> 
     Optional<Institution> findByPublicId(UUID publicId);
 
     boolean existsByPublicId(UUID publicId);
+
+    Optional<Institution> findByName(String name);
 }

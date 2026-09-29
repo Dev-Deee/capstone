@@ -3,6 +3,7 @@ package com.dayo.capstone.cadence.institution.controller;
 import com.dayo.capstone.cadence.admin.service.AdminPermissionService;
 import com.dayo.capstone.cadence.common.enums.Permission;
 import com.dayo.capstone.cadence.institution.dto.request.CreateSubjectRequest;
+import com.dayo.capstone.cadence.institution.dto.request.UpdateSubjectRequest;
 import com.dayo.capstone.cadence.institution.dto.response.SubjectResponse;
 import com.dayo.capstone.cadence.institution.model.Institution;
 import com.dayo.capstone.cadence.institution.service.InstitutionService;
@@ -21,6 +22,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/subjects")
@@ -47,6 +49,21 @@ public class SubjectController {
         }
         Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
         return ResponseEntity.status(HttpStatus.CREATED).body(subjectService.create(request, institution));
+    }
+
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PatchMapping("/{publicId}")
+    public ResponseEntity<SubjectResponse> update(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId,
+            @Valid @RequestBody UpdateSubjectRequest request
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        if (!caller.hasRole(Role.SUPER_ADMIN)) {
+            adminPermissionService.requirePermission(caller, Permission.MANAGE_SUBJECTS);
+        }
+        return ResponseEntity.ok(subjectService.update(publicId, request, institution));
     }
 
     @GetMapping

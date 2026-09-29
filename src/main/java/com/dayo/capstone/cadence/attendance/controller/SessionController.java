@@ -1,6 +1,8 @@
 package com.dayo.capstone.cadence.attendance.controller;
 
 import com.dayo.capstone.cadence.attendance.dto.request.OpenSessionRequest;
+import com.dayo.capstone.cadence.attendance.dto.response.CurrentCodeResponse;
+import com.dayo.capstone.cadence.attendance.dto.response.SessionQrRouteResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.SessionResponse;
 import com.dayo.capstone.cadence.attendance.service.SessionService;
 import com.dayo.capstone.cadence.institution.model.Institution;
@@ -51,5 +53,26 @@ public class SessionController {
     ) {
         User facilitator = userService.findEntityByPublicId(principal.userPublicId());
         return ResponseEntity.ok(sessionService.close(publicId, facilitator));
+    }
+
+    // Facilitator-only — returns the live rotating TOTP code and seconds until rotation.
+    // The caller must be the facilitator who opened the session (enforced in the service).
+    // Do NOT cache responses; each request computes fresh.
+    @PreAuthorize("hasRole('FACILITATOR')")
+    @GetMapping("/{publicId}/current-code")
+    public ResponseEntity<CurrentCodeResponse> getCurrentCode(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId
+    ) {
+        User facilitator = userService.findEntityByPublicId(principal.userPublicId());
+        return ResponseEntity.ok(sessionService.getCurrentCode(publicId, facilitator));
+    }
+
+    // Public (unauthenticated) — resolves a QR token to enough info for a
+    // student to confirm they scanned the right session before typing the
+    // spoken code. Never returns the session code itself.
+    @GetMapping("/qr/{qrToken}")
+    public ResponseEntity<SessionQrRouteResponse> getByQrToken(@PathVariable String qrToken) {
+        return ResponseEntity.ok(sessionService.getQrRouteInfo(qrToken));
     }
 }

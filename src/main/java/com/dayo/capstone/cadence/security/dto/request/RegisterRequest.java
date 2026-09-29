@@ -2,6 +2,7 @@ package com.dayo.capstone.cadence.security.dto.request;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -36,6 +37,6 @@ public class RegisterRequest {
     @NotBlank(message = "Password is required")
     private String password;
 
-    @NotBlank(message = "Consent must be explicitly given")
+    @NotNull(message = "Consent must be explicitly given")
     private Boolean consentGiven;
 }

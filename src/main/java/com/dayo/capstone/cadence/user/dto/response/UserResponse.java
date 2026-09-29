@@ -17,9 +17,12 @@ public record UserResponse(
         String fullName,
         String email,
         String phoneNumber,
-        String profileImagesUrl,
+        String profileImageUrl,
+        boolean phoneVerified,
         Set<Role> roles,
         boolean consentGiven,
         boolean webAuthnCapable,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        UUID cohortPublicId,
+        String cohortName
 ) {}

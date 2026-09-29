@@ -2,6 +2,7 @@ package com.dayo.capstone.cadence.admin.service;
 
 import com.dayo.capstone.cadence.admin.dto.request.AssignAdminRoleRequest;
 import com.dayo.capstone.cadence.admin.dto.request.CreateAdminRoleRequest;
+import com.dayo.capstone.cadence.admin.dto.request.UpdateAdminRoleRequest;
 import com.dayo.capstone.cadence.admin.dto.response.AdminRoleResponse;
 import com.dayo.capstone.cadence.admin.model.AdminRole;
 import com.dayo.capstone.cadence.admin.model.UserAdminRoleAssignment;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -50,6 +52,36 @@ public class AdminRoleService {
     }
 
     @Transactional
+    public AdminRoleResponse update(UUID adminRolePublicId, UpdateAdminRoleRequest request, Institution callerInstitution) {
+        AdminRole role = adminRoleRepository.findByPublicId(adminRolePublicId)
+                .orElseThrow(() -> new ResourceNotFoundException("AdminRole not found: " + adminRolePublicId));
+
+        if (!role.getInstitution().getId().equals(callerInstitution.getId())) {
+            throw new ResourceNotFoundException("AdminRole not found: " + adminRolePublicId);
+        }
+
+        if (request.getName() != null) {
+            role.setName(request.getName());
+        }
+        if (request.getDescription() != null) {
+            role.setDescription(request.getDescription());
+        }
+        if (request.getPermissions() != null) {
+            role.setPermissions(request.getPermissions().stream()
+                    .map(String::toUpperCase)
+                    .map(Permission::valueOf)
+                    .collect(Collectors.toSet()));
+        }
+        if (request.getIsActive() != null) {
+            role.setActive(request.getIsActive());
+        }
+
+        AdminRole saved = adminRoleRepository.save(role);
+        log.info("AdminRole updated: publicId={}", saved.getPublicId());
+        return toResponse(saved);
+    }
+
+    @Transactional
     public void assign(AssignAdminRoleRequest request) {
         User user = userService.findEntityByPublicId(UUID.fromString(request.getUserPublicId()));
         AdminRole role = adminRoleRepository.findByPublicId(UUID.fromString(request.getAdminRolePublicId()))
@@ -68,6 +100,12 @@ public class AdminRoleService {
         assignmentRepository.save(assignment);
         log.info("AdminRole assigned: userPublicId={}, rolePublicId={}, cohortPublicId={}",
                 user.getPublicId(), role.getPublicId(), cohort != null ? cohort.getPublicId() : "institution-wide");
+    }
+
+    public List<AdminRoleResponse> getAll(Institution institution) {
+        return adminRoleRepository.findByInstitution(institution).stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     private AdminRoleResponse toResponse(AdminRole role) {

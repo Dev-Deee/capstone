@@ -1,6 +1,7 @@
 package com.dayo.capstone.cadence.cohort.service;
 
 import com.dayo.capstone.cadence.cohort.dto.request.CreateCohortRequest;
+import com.dayo.capstone.cadence.cohort.dto.request.UpdateCohortRequest;
 import com.dayo.capstone.cadence.cohort.dto.response.CohortResponse;
 import com.dayo.capstone.cadence.cohort.model.Cohort;
 import com.dayo.capstone.cadence.cohort.repository.CohortRepository;
@@ -32,17 +33,18 @@ public class CohortService {
         Cohort saved = cohortRepository.save(cohort);
         log.info("Cohort created: publicId={}, name={}", saved.getPublicId(), saved.getName());
 
-        return toResponse(saved);
+        return toResponse(saved, institution); // pass it through directly
     }
 
+    @Transactional(readOnly = true)
     public CohortResponse getByPublicId(UUID publicId) {
         return toResponse(findEntityByPublicId(publicId));
     }
 
+    @Transactional(readOnly = true)
     public List<CohortResponse> getAll() {
         return cohortRepository.findAll().stream().map(this::toResponse).toList();
     }
-
     // Unscoped lookup — used only where the caller's own institution
     // context isn't the relevant trust boundary (e.g. resolving a cohort
     // during self-registration, where the invite code itself already
@@ -65,10 +67,23 @@ public class CohortService {
         return cohort;
     }
 
+    @Transactional
+    public CohortResponse update(UUID publicId, UpdateCohortRequest request, Institution callerInstitution) {
+        Cohort cohort = findEntityByPublicIdScopedToInstitution(publicId, callerInstitution);
+        cohort.setName(request.name());
+        Cohort saved = cohortRepository.save(cohort);
+        log.info("Cohort updated: publicId={}, name={}", saved.getPublicId(), saved.getName());
+        return toResponse(saved, callerInstitution);
+    }
+
     private CohortResponse toResponse(Cohort cohort) {
+        return toResponse(cohort, cohort.getInstitution()); // safe here — inside an active @Transactional session
+    }
+
+    private CohortResponse toResponse(Cohort cohort, Institution institution) {
         return CohortResponse.builder()
                 .publicId(cohort.getPublicId())
-                .institutionPublicId(cohort.getInstitution().getPublicId())
+                .institutionPublicId(institution.getPublicId())
                 .name(cohort.getName())
                 .startDate(cohort.getStartDate())
                 .endDate(cohort.getEndDate())

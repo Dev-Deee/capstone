@@ -1,6 +1,8 @@
 package com.dayo.capstone.cadence.attendance.service;
 
 import com.dayo.capstone.cadence.attendance.dto.request.OpenSessionRequest;
+import com.dayo.capstone.cadence.attendance.dto.response.CurrentCodeResponse;
+import com.dayo.capstone.cadence.attendance.dto.response.SessionQrRouteResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.SessionResponse;
 import com.dayo.capstone.cadence.attendance.enums.SessionClosedBy;
 import com.dayo.capstone.cadence.attendance.model.Session;
@@ -21,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -34,6 +37,7 @@ public class SessionService {
     private final CohortService cohortService;
     private final SubjectService subjectService;
     private final FacilitatorCohortRepository facilitatorCohortRepository;
+    private final TotpService totpService;
 
     @Transactional
     public SessionResponse open(OpenSessionRequest request, User facilitator, Institution callerInstitution) {
@@ -56,6 +60,7 @@ public class SessionService {
         session.setSubject(subject);
         session.setFacilitator(facilitator);
         session.setSessionCode(generateCode());
+        session.setCodeSecret(totpService.generateSecret());
         session.setQrToken(java.util.UUID.randomUUID().toString());
         session.setExpiresAt(LocalDateTime.now().plusMinutes(request.getExpiryMinutes()));
 
@@ -96,6 +101,43 @@ public class SessionService {
                 .orElseThrow(() -> new IllegalArgumentException("Invalid session code"));
     }
 
+    // Public — used by AttendanceRecordService: find all currently-open
+    // sessions for a cohort so TOTP can be validated against each.
+    public List<Session> findOpenSessionsByCohort(Cohort cohort) {
+        return sessionRepository.findOpenByCohort(cohort);
+    }
+
+    // Facilitator-only — returns the live TOTP code and countdown.
+    // Never cached; caller must re-hit to get a fresh value.
+    public CurrentCodeResponse getCurrentCode(UUID sessionPublicId, User requestingFacilitator) {
+        Session session = findEntityByPublicId(sessionPublicId);
+        if (!session.getFacilitator().getId().equals(requestingFacilitator.getId())) {
+            throw new IllegalArgumentException("Only the facilitator who opened this session may view the live code");
+        }
+        if (session.getCodeSecret() == null) {
+            throw new IllegalStateException("Session predates TOTP and has no code secret");
+        }
+        return CurrentCodeResponse.builder()
+                .code(totpService.currentCode(session.getCodeSecret(), TotpService.PERIOD_SECONDS))
+                .secondsRemaining(totpService.secondsRemainingInWindow(TotpService.PERIOD_SECONDS))
+                .build();
+    }
+
+    // Public — used by the QR-route endpoint (unauthenticated).
+    // Returns 404 for both "never existed" and "closed" — no information
+    // leakage about whether the session ever existed.
+    public SessionQrRouteResponse getQrRouteInfo(String qrToken) {
+        Session session = sessionRepository.findByQrToken(qrToken)
+                .filter(Session::isCurrentlyOpen)
+                .orElseThrow(() -> new ResourceNotFoundException("Session not found"));
+        return SessionQrRouteResponse.builder()
+                .sessionPublicId(session.getPublicId())
+                .cohortName(session.getCohort().getName())
+                .subjectName(session.getSubject().getName())
+                .isOpen(true)
+                .build();
+    }
+
     private String generateCode() {
         SecureRandom random = new SecureRandom();
         StringBuilder sb = new StringBuilder();
@@ -112,6 +154,7 @@ public class SessionService {
                 .subjectPublicId(session.getSubject().getPublicId())
                 .facilitatorPublicId(session.getFacilitator().getPublicId())
                 .sessionCode(session.getSessionCode())
+                .qrToken(session.getQrToken())
                 .expiresAt(session.getExpiresAt())
                 .isOpen(session.isCurrentlyOpen())
                 .build();

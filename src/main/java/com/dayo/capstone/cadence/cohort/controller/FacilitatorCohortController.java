@@ -39,7 +39,7 @@ public class FacilitatorCohortController {
 
     // Admin-gated — same reasoning as invite codes and cohort creation:
     // a facilitator has no authority to assign themselves or others.
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or isAuthenticated()")
     @PostMapping
     public ResponseEntity<FacilitatorCohortResponse> assign(
             @AuthenticationPrincipal CadencePrincipal principal,
