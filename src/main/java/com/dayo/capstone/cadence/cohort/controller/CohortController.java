@@ -19,6 +19,7 @@ import com.dayo.capstone.cadence.institution.model.Institution;
 import com.dayo.capstone.cadence.institution.service.InstitutionService;
 import com.dayo.capstone.cadence.security.CadencePrincipal;
 import com.dayo.capstone.cadence.user.enums.Role;
+import com.dayo.capstone.cadence.user.dto.response.UserResponse;
 import com.dayo.capstone.cadence.user.model.User;
 import com.dayo.capstone.cadence.user.service.UserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -61,9 +62,12 @@ public class CohortController {
         return ResponseEntity.status(HttpStatus.CREATED).body(cohortService.create(request, institution));
     }
 
+    // Enroll a student in this cohort, or move them here from their current one.
+    // Admin/super-admin only — students can't move themselves. Permission checks
+    // (MANAGE_ENROLLMENTS for both cohorts), history handling and audit live in the service.
     @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @PostMapping("/{cohortPublicId}/enrollments")
-    public ResponseEntity<Void> enrollStudent(
+    public ResponseEntity<UserResponse> enrollStudent(
             @AuthenticationPrincipal CadencePrincipal principal,
             @PathVariable UUID cohortPublicId,
             @Valid @RequestBody EnrollStudentRequest request
@@ -71,14 +75,9 @@ public class CohortController {
         User caller = userService.findEntityByPublicId(principal.userPublicId());
         Institution callerInstitution = institutionService.findEntityByUserPublicId(principal.userPublicId());
         Cohort cohort = cohortService.findEntityByPublicIdScopedToInstitution(cohortPublicId, callerInstitution);
-
-        if (!caller.hasRole(Role.SUPER_ADMIN)) {
-            adminPermissionService.requirePermissionForCohort(caller, Permission.MANAGE_ENROLLMENTS, cohort);
-        }
-
-        User student = userService.findEntityByPublicId(request.studentPublicId());
-        cohortEnrollmentService.enroll(student, cohort);
-        return ResponseEntity.status(HttpStatus.CREATED).build();
+        User student = userService.findInCallerInstitution(request.studentPublicId(), caller);
+        cohortEnrollmentService.assignByAdmin(student, cohort, caller);
+        return ResponseEntity.ok(userService.getByPublicId(student.getPublicId()));
     }
     // Nested under a specific cohort's own path, and given its own method
     // name — resolves both the duplicate-mapping and duplicate-method-name
