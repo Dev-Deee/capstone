@@ -40,6 +40,12 @@ public class Session extends BaseEntity {
     @Column(name = "session_code", nullable = false)
     private String sessionCode;
 
+    // TOTP secret — hex-encoded, generated once in open(), never rotated.
+    // The rotating 6-digit code is derived from this on every request;
+    // sessionCode is kept for legacy display only and is no longer validated.
+    @Column(name = "code_secret")
+    private String codeSecret;
+
     @Column(name = "expires_at", nullable = false)
     private LocalDateTime expiresAt;
 

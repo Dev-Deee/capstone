@@ -3,15 +3,12 @@ package com.dayo.capstone.cadence.user.controller;
 import com.dayo.capstone.cadence.admin.service.AdminPermissionService;
 import com.dayo.capstone.cadence.common.enums.Permission;
 import com.dayo.capstone.cadence.security.CadencePrincipal;
-import com.dayo.capstone.cadence.user.dto.request.CreateUserRequest;
 import com.dayo.capstone.cadence.user.dto.response.UserResponse;
 import com.dayo.capstone.cadence.user.enums.Role;
 import com.dayo.capstone.cadence.user.model.User;
 import com.dayo.capstone.cadence.user.service.UserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -30,22 +27,6 @@ public class UserController {
 
     private final UserService userService;
     private final AdminPermissionService adminPermissionService;
-
-    // Direct creation is admin-only — this is how FACILITATOR accounts are
-    // provisioned. STUDENT accounts always go through self-registration via
-    // invite code (AuthController), never this path.
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
-    @PostMapping
-    public ResponseEntity<UserResponse> create(
-            @AuthenticationPrincipal CadencePrincipal principal,
-            @Valid @RequestBody CreateUserRequest request
-    ) {
-        User caller = userService.findEntityByPublicId(principal.userPublicId());
-        if (!caller.hasRole(Role.SUPER_ADMIN)) {
-            adminPermissionService.requirePermission(caller, Permission.MANAGE_USERS);
-        }
-        return ResponseEntity.status(HttpStatus.CREATED).body(userService.create(request));
-    }
 
     // A user may always view their own record.
     @GetMapping("/me")
@@ -111,4 +92,12 @@ public class UserController {
         return ResponseEntity.ok(response);
     }
 
+    // No @PreAuthorize — same open pattern as SubjectController.getAll()
+    // and CohortController.getAll(). Returns only facilitators, and only
+    // the fields needed to populate a dropdown — not the full user
+    // directory getAll() exposes.
+    @GetMapping("/facilitators")
+    public ResponseEntity<List<UserResponse>> getFacilitators() {
+        return ResponseEntity.ok(userService.getFacilitators());
+    }
 }

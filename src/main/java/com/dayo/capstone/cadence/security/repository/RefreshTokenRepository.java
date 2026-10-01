@@ -20,4 +20,5 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
     long deleteByExpiresAtBefore(LocalDateTime cutoff);
     List<RefreshToken> findByUserAndRevokedFalseAndExpiresAtAfter(User user, LocalDateTime now);
     Optional<RefreshToken> findByPublicId(UUID publicId);
+    List<RefreshToken> findByUserAndUserAgentAndRevokedFalse(User user, String userAgent);
 }

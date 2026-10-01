@@ -2,6 +2,7 @@ package com.dayo.capstone.cadence.institution.service;
 
 import com.dayo.capstone.cadence.common.exception.ResourceNotFoundException;
 import com.dayo.capstone.cadence.institution.dto.request.CreateSubjectRequest;
+import com.dayo.capstone.cadence.institution.dto.request.UpdateSubjectRequest;
 import com.dayo.capstone.cadence.institution.dto.response.SubjectResponse;
 import com.dayo.capstone.cadence.institution.model.Institution;
 import com.dayo.capstone.cadence.institution.model.Subject;
@@ -34,6 +35,7 @@ public class SubjectService {
         return toResponse(saved);
     }
 
+    @Transactional(readOnly = true)
     public List<SubjectResponse> getAll() {
         return subjectRepository.findAll().stream().map(this::toResponse).toList();
     }
@@ -52,6 +54,15 @@ public class SubjectService {
             throw new ResourceNotFoundException("Subject not found: " + subjectPublicId);
         }
         return subject;
+    }
+
+    @Transactional
+    public SubjectResponse update(UUID publicId, UpdateSubjectRequest request, Institution callerInstitution) {
+        Subject subject = findEntityByPublicIdScopedToInstitution(publicId, callerInstitution);
+        subject.setName(request.name());
+        Subject saved = subjectRepository.save(subject);
+        log.info("Subject updated: publicId={}, name={}", saved.getPublicId(), saved.getName());
+        return toResponse(saved);
     }
 
     private SubjectResponse toResponse(Subject subject) {

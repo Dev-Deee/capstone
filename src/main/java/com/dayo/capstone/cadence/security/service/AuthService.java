@@ -10,6 +10,7 @@ import com.dayo.capstone.cadence.cohort.model.CohortEnrollment;
 import com.dayo.capstone.cadence.cohort.model.CohortInviteCode;
 import com.dayo.capstone.cadence.cohort.repository.CohortEnrollmentRepository;
 import com.dayo.capstone.cadence.cohort.repository.CohortInviteCodeRepository;
+import com.dayo.capstone.cadence.cohort.service.CohortEnrollmentService;
 import com.dayo.capstone.cadence.cohort.service.CohortService;
 import com.dayo.capstone.cadence.common.exception.ResourceNotFoundException;
 import com.dayo.capstone.cadence.institution.model.Institution;
@@ -31,6 +32,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
@@ -53,6 +55,7 @@ public class AuthService {
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final StaffInviteTokenRepository staffInviteTokenRepository;
+    private final PhoneVerificationTokenRepository phoneVerificationTokenRepository;
     private final AdminRoleRepository adminRoleRepository;
     private final UserAdminRoleAssignmentRepository userAdminRoleAssignmentRepository;
     private final CohortService cohortService;
@@ -60,7 +63,11 @@ public class AuthService {
     private final JwtService jwtService;
     private final JwtProperties jwtProperties;
     private final EmailService emailService;
+    private final SmsService smsService;
     private final AuditLogService auditLogService;
+    private final CohortEnrollmentService cohortEnrollmentService;
+
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Value("${app.frontend-url}")
     private String frontendUrl;
@@ -109,12 +116,7 @@ public class AuthService {
         user.setEmailVerified(false);  // but must verify email before their NEXT login
 
         User saved = userRepository.save(user);
-
-        CohortEnrollment enrollment = new CohortEnrollment();
-        enrollment.setStudent(saved);
-        enrollment.setCohort(invite.getCohort());
-        enrollment.setEnrolledAt(LocalDateTime.now());
-        cohortEnrollmentRepository.save(enrollment);
+        cohortEnrollmentService.enroll(saved, invite.getCohort());
 
         invite.setUseCount(invite.getUseCount() + 1);
         cohortInviteCodeRepository.save(invite);
@@ -213,6 +215,35 @@ public class AuthService {
         log.info("Logout completed: refresh token revoked, access token blacklisted");
     }
 
+    @Transactional
+    public AuthResponse refreshAccessToken(String rawRefreshToken) {
+        String hash = jwtService.hashToken(rawRefreshToken);
+
+        RefreshToken storedToken = refreshTokenRepository.findByTokenHash(hash)
+                .filter(t -> !t.isRevoked())
+                .filter(t -> t.getExpiresAt().isAfter(LocalDateTime.now()))
+                .orElseThrow(() -> new BadCredentialsException("Invalid or expired refresh token"));
+
+        User user = storedToken.getUser();
+        if (user.isDeleted()) {
+            throw new BadCredentialsException("Invalid or expired refresh token");
+        }
+
+        storedToken.setLastUsedAt(LocalDateTime.now());
+        refreshTokenRepository.save(storedToken);
+
+        Set<String> roleNames = user.getRoles().stream().map(Role::name).collect(Collectors.toSet());
+        String newAccessToken = jwtService.generateAccessToken(user.getPublicId(), roleNames);
+
+        log.info("Access token refreshed: userPublicId={}", user.getPublicId());
+
+        return AuthResponse.builder()
+                .userPublicId(user.getPublicId())
+                .accessToken(newAccessToken)
+                .refreshToken(rawRefreshToken) // same refresh token — not rotated for this pass
+                .roles(roleNames)
+                .build();
+    }
     // ─────────────────────────────────────────────────────────────────────
     // PASSWORD & EMAIL MANAGEMENT
     // ─────────────────────────────────────────────────────────────────────
@@ -333,13 +364,17 @@ public class AuthService {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // STAFF INVITE (FACILITATOR / ADMIN — SUPER_ADMIN only, enforced in controller)
+    // STAFF INVITE (FACILITATOR / ADMIN — SUPER_ADMIN or scoped ADMIN)
     // ─────────────────────────────────────────────────────────────────────
 
     @Transactional
-    public void createStaffInvite(CreateStaffInviteRequest request, Institution institution) {
+    public void createStaffInvite(CreateStaffInviteRequest request, Institution institution, User caller) {
         if (request.getTargetRole() != Role.FACILITATOR && request.getTargetRole() != Role.ADMIN) {
             throw new IllegalArgumentException("Staff invites can only target FACILITATOR or ADMIN");
+        }
+
+        if (!caller.hasRole(Role.SUPER_ADMIN)) {
+            enforceAdminInviteConstraints(request, caller);
         }
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new IllegalArgumentException("Email already registered: " + request.getEmail());
@@ -379,11 +414,73 @@ public class AuthService {
 
         staffInviteTokenRepository.save(invite);
 
-        String activationLink = frontendUrl + "/activate?token=" + rawToken;
+        String activationLink = frontendUrl + "/accept-invite?token=" + rawToken;
         emailService.send(saved.getEmail(), "You've been invited to Cadence",
                 "Set your password to activate your account (valid 7 days): " + activationLink);
 
         log.info("Staff invite created: userPublicId={}, targetRole={}", saved.getPublicId(), request.getTargetRole());
+    }
+
+    /**
+     * Enforces subset-permission and cohort-scope rules when a non-SUPER_ADMIN
+     * ADMIN caller is creating a staff invite.
+     *
+     * Rules:
+     *  - Inviting FACILITATOR: no extra permission check.
+     *  - Inviting ADMIN: the target AdminRole's permission set must be a strict
+     *    subset of the union of permissions from all of the caller's active
+     *    role-assignments whose AdminRole is also active.  If the target invite
+     *    specifies a cohort, the caller must hold at least one active assignment
+     *    that covers that cohort (assignment.cohort == null means institution-wide).
+     */
+    private void enforceAdminInviteConstraints(CreateStaffInviteRequest request, User caller) {
+        if (request.getTargetRole() == Role.FACILITATOR) {
+            // ADMIN can freely invite facilitators — no further check.
+            return;
+        }
+
+        // --- target is ADMIN: load and validate caller's active assignments ---
+        List<UserAdminRoleAssignment> callerAssignments = userAdminRoleAssignmentRepository
+                .findByUserAndIsActiveTrue(caller)
+                .stream()
+                .filter(a -> a.getAdminRole().isActive())
+                .collect(Collectors.toList());
+
+        if (callerAssignments.isEmpty()) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Caller has no active admin role assignments");
+        }
+
+        // Union permissions across all valid assignments.
+        Set<com.dayo.capstone.cadence.common.enums.Permission> callerPermissions = callerAssignments.stream()
+                .flatMap(a -> a.getAdminRole().getPermissions().stream())
+                .collect(Collectors.toSet());
+
+        // Load the target AdminRole.
+        AdminRole targetRole = adminRoleRepository
+                .findByPublicId(UUID.fromString(request.getAdminRolePublicId()))
+                .orElseThrow(() -> new ResourceNotFoundException("AdminRole not found"));
+
+        // Subset check: every permission the target role has must also be in caller's union.
+        if (!callerPermissions.containsAll(targetRole.getPermissions())) {
+            Set<com.dayo.capstone.cadence.common.enums.Permission> excess = new java.util.HashSet<>(targetRole.getPermissions());
+            excess.removeAll(callerPermissions);
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Cannot grant permissions not held by caller: " + excess);
+        }
+
+        // Cohort-scope check: if the invite targets a specific cohort, the caller
+        // must have at least one assignment covering that cohort or the whole institution.
+        if (request.getCohortPublicId() != null) {
+            UUID targetCohortId = UUID.fromString(request.getCohortPublicId());
+            boolean callerCoversScope = callerAssignments.stream()
+                    .anyMatch(a -> a.getCohort() == null
+                            || a.getCohort().getPublicId().equals(targetCohortId));
+            if (!callerCoversScope) {
+                throw new org.springframework.security.access.AccessDeniedException(
+                        "Caller's assignments do not cover the requested cohort scope");
+            }
+        }
     }
 
     @Transactional
@@ -412,6 +509,119 @@ public class AuthService {
         staffInviteTokenRepository.save(invite);
 
         log.info("Staff invite accepted, account activated: userPublicId={}", user.getPublicId());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // EMAIL OTP (6-digit code, parallel to existing link-based flow)
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Same ifPresent pattern as requestPasswordReset — never reveals
+    // whether the email address is registered.
+    @Transactional
+    public void sendEmailVerificationCode(String email) {
+        userRepository.findByEmail(email)
+                .filter(u -> !u.isDeleted())
+                .ifPresent(user -> {
+                    // Invalidate any existing tokens for this user so old codes
+                    // cannot be used after a new one is issued, and the unique
+                    // constraint on token_hash can never be violated by a repeat
+                    // code for the same user.
+                    emailVerificationTokenRepository.findByUser(user).forEach(t -> {
+                        t.setUsed(true);
+                        emailVerificationTokenRepository.save(t);
+                    });
+
+                    String code = generateOtpCode();
+
+                    EmailVerificationToken token = new EmailVerificationToken();
+                    token.setUser(user);
+                    // Salt with userPublicId so two users with the same 6-digit
+                    // code produce different stored hashes.
+                    token.setTokenHash(jwtService.hashToken(user.getPublicId() + ":" + code));
+                    token.setExpiresAt(LocalDateTime.now().plusHours(24));
+                    emailVerificationTokenRepository.save(token);
+
+                    emailService.send(user.getEmail(),
+                            "Your Cadence email verification code",
+                            "Your Cadence verification code is: " + code + " — valid for 24 hours.");
+
+                    log.info("Email verification code sent: userPublicId={}", user.getPublicId());
+                });
+    }
+
+    @Transactional
+    public void verifyEmailCode(String email, String code) {
+        User user = userRepository.findByEmail(email)
+                .filter(u -> !u.isDeleted())
+                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired verification code"));
+
+        String hash = jwtService.hashToken(user.getPublicId() + ":" + code);
+
+        EmailVerificationToken token = emailVerificationTokenRepository.findByTokenHash(hash)
+                .filter(EmailVerificationToken::isValid)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired verification code"));
+
+        user.setEmailVerified(true);
+        userRepository.save(user);
+
+        token.setUsed(true);
+        emailVerificationTokenRepository.save(token);
+
+        log.info("Email verified via code: userPublicId={}", user.getPublicId());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PHONE OTP (authenticated — user verifies their own number)
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Transactional
+    public void sendPhoneOtp(UUID userPublicId) {
+        User user = userRepository.findByPublicId(userPublicId)
+                .filter(u -> !u.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userPublicId));
+
+        if (user.getPhoneNumber() == null || user.getPhoneNumber().isBlank()) {
+            throw new IllegalArgumentException("No phone number on file for this account");
+        }
+
+        // Invalidate existing tokens before issuing a new one.
+        phoneVerificationTokenRepository.findByUser(user).forEach(t -> {
+            t.setUsed(true);
+            phoneVerificationTokenRepository.save(t);
+        });
+
+        String code = generateOtpCode();
+
+        PhoneVerificationToken token = new PhoneVerificationToken();
+        token.setUser(user);
+        token.setTokenHash(jwtService.hashToken(user.getPublicId() + ":" + code));
+        token.setExpiresAt(LocalDateTime.now().plusMinutes(10));
+        phoneVerificationTokenRepository.save(token);
+
+        smsService.sendOtp(user.getPhoneNumber(), code);
+
+        log.info("Phone OTP sent: userPublicId={}", user.getPublicId());
+    }
+
+    @Transactional
+    public void verifyPhoneOtp(UUID userPublicId, String code) {
+        User user = userRepository.findByPublicId(userPublicId)
+                .filter(u -> !u.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userPublicId));
+
+        String hash = jwtService.hashToken(user.getPublicId() + ":" + code);
+
+        PhoneVerificationToken token = phoneVerificationTokenRepository.findByTokenHash(hash)
+                .filter(PhoneVerificationToken::isValid)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired verification code"));
+
+        user.setPhoneVerified(true);
+        userRepository.save(user);
+
+        token.setUsed(true);
+        phoneVerificationTokenRepository.save(token);
+
+        log.info("Phone verified via OTP: userPublicId={}", user.getPublicId());
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -451,11 +661,28 @@ public class AuthService {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // SHARED HELPER
+    // SHARED HELPERS
     // ─────────────────────────────────────────────────────────────────────
+
+    // 6-digit zero-padded numeric code: SecureRandom, always exactly 6
+    // digits (e.g. "042917", never "42917").
+    private String generateOtpCode() {
+        int code = SECURE_RANDOM.nextInt(1_000_000);
+        return String.format("%06d", code);
+    }
 
     private AuthResponse issueTokens(User user, String userAgent, String ipAddress) {
         Set<String> roleNames = user.getRoles().stream().map(Role::name).collect(Collectors.toSet());
+
+        // Revoke any existing active session from this same browser/device before
+        // issuing a new one — prevents unbounded accumulation of "Active" devices
+        // every time the same browser logs in again.
+        refreshTokenRepository.findByUserAndUserAgentAndRevokedFalse(user, userAgent)
+                .forEach(existing -> {
+                    existing.setRevoked(true);
+                    existing.setRevokedAt(LocalDateTime.now());
+                    refreshTokenRepository.save(existing);
+                });
 
         String accessToken = jwtService.generateAccessToken(user.getPublicId(), roleNames);
         String rawRefreshToken = jwtService.generateRefreshTokenRaw();

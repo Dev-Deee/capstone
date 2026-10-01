@@ -30,6 +30,11 @@ public class ResumptionSession extends BaseEntity {
     @Column(name = "resumption_code", nullable = false)
     private String resumptionCode;
 
+    // TOTP secret — hex-encoded, generated once in open(), never rotated.
+    // resumptionCode is kept for legacy display only and is no longer validated.
+    @Column(name = "code_secret")
+    private String codeSecret;
+
     @Column(name = "qr_token", nullable = false, unique = true)
     private String qrToken;
 

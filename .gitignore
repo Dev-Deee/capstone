@@ -49,3 +49,6 @@ generated-reports/
 keys/
 src/main/resources/keys/
 .env_key*
+.claude
+.idea
+.vscode

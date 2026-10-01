@@ -13,13 +13,18 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * PRD Section 3 — roles is a Set, not a single field: a user can be both
- * FACILITATOR and MANAGEMENT simultaneously. Permission checks throughout
- * the codebase must check hasRole(X), never assume a single role.
+ * PRD Section 3 — roles is a Set, not a single field: a user can hold
+ * multiple roles simultaneously. Permission checks throughout the
+ * codebase must check hasRole(X), never assume a single role.
  *
- * PRD Sections 9, 6.5, 6.12 — consent and capability fields live here
- * rather than a separate table; one row per user is the natural shape
- * for "has this person agreed to X, as of when, under which version."
+ * PRD Section 9 — general NDPR consent fields live here rather than a
+ * separate table; one row per user is the natural shape for "has this
+ * person agreed to X, as of when, under which version."
+ *
+ * GPS consent (Section 6.5) and WebAuthn capability (Section 6.12)
+ * fields were removed — both features are designed but not built;
+ * re-add when either is actually implemented, rather than carrying
+ * unused columns on the platform's most central entity in the meantime.
  */
 @Entity
 @Table(name = "app_user")
@@ -55,24 +60,11 @@ public class User extends BaseEntity {
     private LocalDateTime consentTimestamp;
     private String consentVersion;
 
-    // --- Section 6.5: GPS / presence consent (distinct from general consent above) ---
-    private boolean gpsConsentGiven = false;
-    private LocalDateTime gpsConsentTimestamp;
-    private String gpsConsentVersion;
-
-    // --- Section 6.12: WebAuthn capability, detected not self-reported ---
-    private boolean webAuthnCapable = false;
-    private LocalDateTime webAuthnRegisteredAt;
-
     // --- Section 18.1: right-to-erasure via soft-delete/anonymization ---
     private boolean isDeleted = false;
 
-    public boolean hasRole(Role role) {
-        return roles.contains(role);
-    }
-
     @Column(name = "institution_student_id")
-    private String institutionStudentId;   // nullable; the institution's own
+    private String institutionStudentId; // nullable; the institution's own
     // existing ID/matric number, if
     // one exists — never generated
     // by Cadence
@@ -89,9 +81,22 @@ public class User extends BaseEntity {
     @Column(name = "profile_image_url")
     private String profileImageUrl;
 
-    // Add to User.java
+    @Column(name = "web_authn_capable")
+    private boolean webAuthnCapable = false;
+
+    // columnDefinition includes DEFAULT false so PostgreSQL fills existing
+    // rows with false immediately on ALTER TABLE ADD COLUMN, preventing the
+    // NullPointerException that hit web_authn_capable when it was added without
+    // a database-level default.
+    @Column(name = "phone_verified", columnDefinition = "boolean default false")
+    private boolean phoneVerified = false;
+
     @Column(name = "account_pending")
     private boolean accountPending = true;
+
+    public boolean hasRole(Role role) {
+        return roles.contains(role);
+    }
 
     public String getFullName() {
         return (middleName == null || middleName.isBlank())

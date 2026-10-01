@@ -7,9 +7,9 @@ import com.dayo.capstone.cadence.attendance.enums.VerificationMethod;
 import com.dayo.capstone.cadence.attendance.model.AttendanceRecord;
 import com.dayo.capstone.cadence.attendance.model.Session;
 import com.dayo.capstone.cadence.attendance.repository.AttendanceRecordRepository;
-import com.dayo.capstone.cadence.attendance.strategy.SessionCodeStrategy;
+import com.dayo.capstone.cadence.cohort.model.Cohort;
+import com.dayo.capstone.cadence.cohort.model.CohortEnrollment;
 import com.dayo.capstone.cadence.cohort.repository.CohortEnrollmentRepository;
-import com.dayo.capstone.cadence.common.exception.ResourceNotFoundException;
 import com.dayo.capstone.cadence.user.model.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -25,29 +26,35 @@ public class AttendanceRecordService {
 
     private final AttendanceRecordRepository attendanceRecordRepository;
     private final SessionService sessionService;
-    private final SessionCodeStrategy sessionCodeStrategy;
+    private final TotpService totpService;
     private final CohortEnrollmentRepository cohortEnrollmentRepository;
 
     @Transactional
     public AttendanceRecordResponse markAttendance(MarkAttendanceRequest request, User student) {
-        Session session = sessionService.findEntityBySessionCode(request.getSessionCode());
-
-        // The student must actually be enrolled in this session's cohort —
-        // a valid code alone isn't enough (Section 18.2's late-joiner
-        // logic depends on enrolment being the real gate, not just the code).
-        cohortEnrollmentRepository.findByStudentAndCohort(student, session.getCohort())
-                .filter(e -> e.isActive())
+        // Resolve the student's active cohort — enrollment is the real gate
+        // (Section 18.2). A valid code from a different cohort's session must
+        // not let a student mark attendance against a session they have no
+        // business attending.
+        CohortEnrollment enrollment = cohortEnrollmentRepository
+                .findByStudentAndIsActiveTrue(student)
                 .orElseThrow(() -> new IllegalArgumentException(
-                        "You are not enrolled in this session's cohort"));
+                        "You are not enrolled in any active cohort"));
+
+        Cohort cohort = enrollment.getCohort();
+
+        // Find all currently-open sessions for this cohort, then TOTP-validate.
+        // There will normally be at most one open session per cohort at a time,
+        // but we check all to handle any overlap edge case — first match wins.
+        List<Session> candidates = sessionService.findOpenSessionsByCohort(cohort);
+        Session session = candidates.stream()
+                .filter(s -> totpService.isValid(s.getCodeSecret(), request.getSessionCode(), TotpService.PERIOD_SECONDS))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Session code is invalid or has expired"));
 
         attendanceRecordRepository.findBySessionAndStudent(session, student)
                 .ifPresent(existing -> {
                     throw new IllegalArgumentException("Attendance already marked for this session");
                 });
-
-        if (!sessionCodeStrategy.verify(session, request.getSessionCode())) {
-            throw new IllegalArgumentException("Session code is invalid or has expired");
-        }
 
         AttendanceRecord record = new AttendanceRecord();
         record.setSession(session);

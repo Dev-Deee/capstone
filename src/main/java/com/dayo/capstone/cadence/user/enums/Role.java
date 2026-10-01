@@ -4,6 +4,6 @@ package com.dayo.capstone.cadence.user.enums;
 public enum Role {
     STUDENT,
     FACILITATOR,
-    ADMIN,
+    ADMIN, 
     SUPER_ADMIN
 }

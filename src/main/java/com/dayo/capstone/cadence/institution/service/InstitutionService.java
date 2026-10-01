@@ -60,10 +60,20 @@ public class InstitutionService {
     }
 
     // InstitutionService.java — add this method
+// InstitutionService.java
+    @Transactional(readOnly = true)
     public Institution findEntityByUserPublicId(UUID userPublicId) {
         User user = userRepository.findByPublicId(userPublicId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userPublicId));
-        return user.getInstitution();
+
+        // user.getInstitution().getId() is safe — the ID is always known to
+        // a lazy proxy upfront, reading it never triggers a DB hit. What we're
+        // avoiding is calling any OTHER method on that proxy (like getPublicId()),
+        // which would try to initialize it and fail outside this session.
+        Long institutionId = user.getInstitution().getId();
+
+        return institutionRepository.findById(institutionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Institution not found"));
     }
 
     private InstitutionResponse toResponse(Institution institution) {

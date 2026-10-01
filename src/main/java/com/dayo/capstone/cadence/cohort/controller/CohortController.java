@@ -2,10 +2,13 @@ package com.dayo.capstone.cadence.cohort.controller;
 
 import com.dayo.capstone.cadence.admin.service.AdminPermissionService;
 import com.dayo.capstone.cadence.cohort.dto.request.CreateCohortRequest;
+import com.dayo.capstone.cadence.cohort.dto.request.EnrollStudentRequest;
+import com.dayo.capstone.cadence.cohort.dto.request.UpdateCohortRequest;
 import com.dayo.capstone.cadence.cohort.dto.response.CohortResponse;
 import com.dayo.capstone.cadence.cohort.dto.request.CreateInviteCodeRequest;
 import com.dayo.capstone.cadence.cohort.dto.response.InviteCodeResponse;
 import com.dayo.capstone.cadence.cohort.model.Cohort;
+import com.dayo.capstone.cadence.cohort.service.CohortEnrollmentService;
 import com.dayo.capstone.cadence.cohort.service.CohortService;
 import com.dayo.capstone.cadence.cohort.service.CohortInviteCodeService;
 import com.dayo.capstone.cadence.common.enums.Permission;
@@ -27,6 +30,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+
 @RestController
 @RequestMapping("/api/cohorts")
 @RequiredArgsConstructor
@@ -38,6 +42,7 @@ public class CohortController {
     private final InstitutionService institutionService;
     private final UserService userService;
     private final AdminPermissionService adminPermissionService;
+    private final CohortEnrollmentService cohortEnrollmentService;
 
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     @PostMapping
@@ -53,6 +58,25 @@ public class CohortController {
         return ResponseEntity.status(HttpStatus.CREATED).body(cohortService.create(request, institution));
     }
 
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @PostMapping("/{cohortPublicId}/enrollments")
+    public ResponseEntity<Void> enrollStudent(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID cohortPublicId,
+            @Valid @RequestBody EnrollStudentRequest request
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        Institution callerInstitution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        Cohort cohort = cohortService.findEntityByPublicIdScopedToInstitution(cohortPublicId, callerInstitution);
+
+        if (!caller.hasRole(Role.SUPER_ADMIN)) {
+            adminPermissionService.requirePermissionForCohort(caller, Permission.MANAGE_ENROLLMENTS, cohort);
+        }
+
+        User student = userService.findEntityByPublicId(request.studentPublicId());
+        cohortEnrollmentService.enroll(student, cohort);
+        return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
     // Nested under a specific cohort's own path, and given its own method
     // name — resolves both the duplicate-mapping and duplicate-method-name
     // problems from the merged version.
@@ -74,6 +98,24 @@ public class CohortController {
         }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(inviteCodeService.create(request, callerInstitution));
+    }
+
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @PatchMapping("/{publicId}")
+    public ResponseEntity<CohortResponse> update(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId,
+            @Valid @RequestBody UpdateCohortRequest request
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        Institution callerInstitution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        Cohort cohort = cohortService.findEntityByPublicIdScopedToInstitution(publicId, callerInstitution);
+
+        if (!caller.hasRole(Role.SUPER_ADMIN)) {
+            adminPermissionService.requirePermissionForCohort(caller, Permission.MANAGE_COHORTS, cohort);
+        }
+
+        return ResponseEntity.ok(cohortService.update(publicId, request, callerInstitution));
     }
 
     @GetMapping("/{publicId}")

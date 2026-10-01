@@ -12,6 +12,7 @@ public record SessionResponse(
         UUID subjectPublicId,
         UUID facilitatorPublicId,
         String sessionCode,   // only ever returned to the facilitator who opened it — see controller note
+        String qrToken,
         LocalDateTime expiresAt,
         boolean isOpen
 ) {}

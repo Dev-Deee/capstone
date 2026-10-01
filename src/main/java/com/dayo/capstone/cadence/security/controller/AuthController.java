@@ -7,6 +7,8 @@ import com.dayo.capstone.cadence.security.dto.request.*;
 import com.dayo.capstone.cadence.security.dto.response.ActiveDeviceResponse;
 import com.dayo.capstone.cadence.security.dto.response.AuthResponse;
 import com.dayo.capstone.cadence.security.service.AuthService;
+import com.dayo.capstone.cadence.user.model.User;
+import com.dayo.capstone.cadence.user.service.UserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -28,6 +30,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final InstitutionService institutionService;
+    private final UserService userService;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -96,14 +99,15 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @PostMapping("/staff-invites")
     public ResponseEntity<Void> createStaffInvite(
             @AuthenticationPrincipal CadencePrincipal principal,
             @Valid @RequestBody CreateStaffInviteRequest request
     ) {
         Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
-        authService.createStaffInvite(request, institution);
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        authService.createStaffInvite(request, institution, caller);
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
@@ -126,6 +130,42 @@ public class AuthController {
             @PathVariable UUID publicId
     ) {
         authService.revokeDevice(principal.userPublicId(), publicId);
+        return ResponseEntity.noContent().build();
+    }
+    
+    @PostMapping("/refresh")
+    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return ResponseEntity.ok(authService.refreshAccessToken(request.getRefreshToken()));
+    }
+
+    // ── Email OTP (unauthenticated — works mid-registration) ──────────────
+
+    @PostMapping("/send-email-code")
+    public ResponseEntity<Void> sendEmailCode(@Valid @RequestBody SendEmailCodeRequest request) {
+        authService.sendEmailVerificationCode(request.getEmail());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/verify-email-code")
+    public ResponseEntity<Void> verifyEmailCode(@Valid @RequestBody VerifyEmailCodeRequest request) {
+        authService.verifyEmailCode(request.getEmail(), request.getCode());
+        return ResponseEntity.noContent().build();
+    }
+
+    // ── Phone OTP (authenticated — user verifies their own number) ────────
+
+    @PostMapping("/send-phone-otp")
+    public ResponseEntity<Void> sendPhoneOtp(@AuthenticationPrincipal CadencePrincipal principal) {
+        authService.sendPhoneOtp(principal.userPublicId());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/verify-phone-otp")
+    public ResponseEntity<Void> verifyPhoneOtp(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @Valid @RequestBody VerifyPhoneOtpRequest request
+    ) {
+        authService.verifyPhoneOtp(principal.userPublicId(), request.getCode());
         return ResponseEntity.noContent().build();
     }
 }

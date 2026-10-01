@@ -136,6 +136,11 @@
             <artifactId>cloudinary-http44</artifactId>
             <version>1.39.0</version>
         </dependency>
+        <dependency>
+            <groupId>com.webauthn4j</groupId>
+            <artifactId>webauthn4j-core</artifactId>
+            <version>0.28.4.RELEASE</version>
+        </dependency>
     </dependencies>
 
     <build>
