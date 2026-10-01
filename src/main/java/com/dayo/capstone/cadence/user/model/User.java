@@ -94,6 +94,12 @@ public class User extends BaseEntity {
     @Column(name = "account_pending")
     private boolean accountPending = true;
 
+    // Admin-controlled on/off switch, separate from isDeleted: a deactivated
+    // account keeps its data and can be re-activated; it just can't sign in.
+    // DEFAULT true so existing rows are filled on ALTER TABLE ADD COLUMN.
+    @Column(name = "is_active", columnDefinition = "boolean default true")
+    private boolean isActive = true;
+
     public boolean hasRole(Role role) {
         return roles.contains(role);
     }

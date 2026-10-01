@@ -1,10 +1,13 @@
 package com.dayo.capstone.cadence.attendance.controller;
 
+import com.dayo.capstone.cadence.attendance.dto.request.ManualAttendanceOverrideRequest;
 import com.dayo.capstone.cadence.attendance.dto.request.OpenSessionRequest;
+import com.dayo.capstone.cadence.attendance.dto.response.AttendanceRecordResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.CurrentCodeResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.SessionAttendanceRosterEntry;
 import com.dayo.capstone.cadence.attendance.dto.response.SessionQrRouteResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.SessionResponse;
+import com.dayo.capstone.cadence.attendance.service.AttendanceRecordService;
 import com.dayo.capstone.cadence.attendance.service.SessionService;
 import com.dayo.capstone.cadence.institution.model.Institution;
 import com.dayo.capstone.cadence.institution.service.InstitutionService;
@@ -32,6 +35,7 @@ public class SessionController {
     private final SessionService sessionService;
     private final UserService userService;
     private final InstitutionService institutionService;
+    private final AttendanceRecordService attendanceRecordService;
 
     // Facilitator-only — enforced both by role and by the actual
     // FacilitatorCohort assignment check inside the service.
@@ -96,6 +100,22 @@ public class SessionController {
     ) {
         User caller = userService.findEntityByPublicId(principal.userPublicId());
         return ResponseEntity.ok(sessionService.getAttendanceRoster(publicId, caller));
+    }
+
+    // PRD Section 6.6 — manual override (PRESENT / LATE / ABSENT) for one student.
+    // Same access rule as the roster above; ownership is checked in the service.
+    @PreAuthorize("hasRole('FACILITATOR') or hasRole('SUPER_ADMIN')")
+    @PutMapping("/{publicId}/attendance/{studentPublicId}")
+    public ResponseEntity<AttendanceRecordResponse> overrideAttendance(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId,
+            @PathVariable UUID studentPublicId,
+            @Valid @RequestBody ManualAttendanceOverrideRequest request
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(attendanceRecordService.manualOverride(
+                publicId, studentPublicId, request, caller, institution));
     }
 
     // Public (unauthenticated) — resolves a QR token to enough info for a

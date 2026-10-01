@@ -1,21 +1,30 @@
 package com.dayo.capstone.cadence.attendance.service;
 
+import com.dayo.capstone.cadence.admin.service.AdminPermissionService;
+import com.dayo.capstone.cadence.attendance.dto.request.ManualAttendanceOverrideRequest;
 import com.dayo.capstone.cadence.attendance.dto.request.MarkResumptionAttendanceRequest;
 import com.dayo.capstone.cadence.attendance.dto.response.AttendanceHistoryEntry;
 import com.dayo.capstone.cadence.attendance.dto.response.AttendanceSummaryResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.CohortAttendanceOverviewEntry;
 import com.dayo.capstone.cadence.attendance.dto.response.ResumptionAttendanceRecordResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.StudentAttendanceSummaryEntry;
+import com.dayo.capstone.cadence.attendance.enums.AttendanceStatus;
+import com.dayo.capstone.cadence.attendance.enums.VerificationMethod;
 import com.dayo.capstone.cadence.attendance.model.ResumptionAttendanceRecord;
 import com.dayo.capstone.cadence.attendance.model.ResumptionSession;
 import com.dayo.capstone.cadence.attendance.repository.ResumptionAttendanceRecordRepository;
 import com.dayo.capstone.cadence.attendance.repository.ResumptionSessionRepository;
+import com.dayo.capstone.cadence.audit.enums.AuditAction;
+import com.dayo.capstone.cadence.audit.service.AuditLogService;
 import com.dayo.capstone.cadence.cohort.model.Cohort;
 import com.dayo.capstone.cadence.cohort.model.CohortEnrollment;
 import com.dayo.capstone.cadence.cohort.repository.CohortEnrollmentRepository;
 import com.dayo.capstone.cadence.cohort.service.CohortService;
+import com.dayo.capstone.cadence.common.enums.Permission;
 import com.dayo.capstone.cadence.institution.model.Institution;
+import com.dayo.capstone.cadence.user.enums.Role;
 import com.dayo.capstone.cadence.user.model.User;
+import com.dayo.capstone.cadence.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -40,6 +49,9 @@ public class ResumptionAttendanceRecordService {
     private final TotpService totpService;
     private final CohortEnrollmentRepository cohortEnrollmentRepository;
     private final CohortService cohortService;
+    private final UserService userService;
+    private final AdminPermissionService adminPermissionService;
+    private final AuditLogService auditLogService;
 
     @Transactional
     public ResumptionAttendanceRecordResponse markAttendance(MarkResumptionAttendanceRequest request, User student) {
@@ -68,6 +80,8 @@ public class ResumptionAttendanceRecordService {
         record.setResumptionSession(session);
         record.setStudent(student);
         record.setCheckedInAt(LocalDateTime.now());
+        record.setStatus(AttendanceStatus.PRESENT);
+        record.setVerificationMethod(VerificationMethod.CODE);
 
         ResumptionAttendanceRecord saved = recordRepository.save(record);
         log.info("Resumption attendance marked: sessionPublicId={}, studentPublicId={}",
@@ -147,6 +161,7 @@ public class ResumptionAttendanceRecordService {
     private int[] computeAttendance(User student, Cohort cohort, LocalDate since) {
         int total = resumptionSessionRepository.findByCohortSince(cohort, since).size();
         int present = (int) recordRepository.findByStudentAndCohort(student, cohort).stream()
+                .filter(r -> r.getEffectiveStatus().countsAsAttended())
                 .map(r -> r.getResumptionSession().getPublicId())
                 .collect(Collectors.toSet())
                 .size();
@@ -175,11 +190,57 @@ public class ResumptionAttendanceRecordService {
                     return AttendanceHistoryEntry.builder()
                             .sessionPublicId(s.getPublicId())
                             .date(s.getResumptionDate())
-                            .status(record != null ? "PRESENT" : "ABSENT")
+                            .status(record != null ? record.getEffectiveStatus().name() : "ABSENT")
                             .checkedInAt(record != null ? record.getCheckedInAt() : null)
                             .build();
                 })
                 .toList();
+    }
+
+    // PRD Section 6.6 — manual override for campus resumption attendance.
+    // Resumption sessions have no owning facilitator, so this follows the same
+    // rule as close/regenerate: SUPER_ADMIN, or MANAGE_RESUMPTION_CODES for the cohort.
+    @Transactional
+    public ResumptionAttendanceRecordResponse manualOverride(
+            UUID resumptionSessionPublicId, UUID studentPublicId,
+            ManualAttendanceOverrideRequest request, User caller, Institution callerInstitution
+    ) {
+        ResumptionSession session = resumptionSessionService
+                .findEntityByPublicIdScopedToInstitution(resumptionSessionPublicId, callerInstitution);
+        if (!caller.hasRole(Role.SUPER_ADMIN)) {
+            adminPermissionService.requirePermissionForCohort(
+                    caller, Permission.MANAGE_RESUMPTION_CODES, session.getCohort());
+        }
+
+        User student = userService.findEntityByPublicId(studentPublicId);
+        cohortEnrollmentRepository.findByStudentAndCohort(student, session.getCohort())
+                .filter(CohortEnrollment::isActive)
+                .orElseThrow(() -> new IllegalArgumentException("Student is not actively enrolled in this session's cohort"));
+
+        ResumptionAttendanceRecord record = recordRepository.findByResumptionSessionAndStudent(session, student)
+                .orElseGet(() -> {
+                    ResumptionAttendanceRecord fresh = new ResumptionAttendanceRecord();
+                    fresh.setResumptionSession(session);
+                    fresh.setStudent(student);
+                    return fresh;
+                });
+        String beforeState = record.getId() == null ? null
+                : "{\"status\":\"" + record.getEffectiveStatus() + "\",\"verificationMethod\":\""
+                  + (record.getVerificationMethod() != null ? record.getVerificationMethod() : VerificationMethod.CODE) + "\"}";
+
+        record.setStatus(request.getStatus());
+        record.setVerificationMethod(VerificationMethod.MANUAL_OVERRIDE);
+        record.setOverrideReason(request.getReason());
+        record.setCheckedInAt(LocalDateTime.now());
+        ResumptionAttendanceRecord saved = recordRepository.save(record);
+
+        auditLogService.log(caller.getPublicId(), caller.getRoles().toString(), AuditAction.OVERRIDE,
+                "ResumptionAttendanceRecord", saved.getPublicId(), beforeState,
+                "{\"status\":\"" + saved.getStatus() + "\",\"verificationMethod\":\"MANUAL_OVERRIDE\"}");
+        log.info("Resumption attendance manually overridden: sessionPublicId={}, studentPublicId={}, status={}, by={}",
+                resumptionSessionPublicId, studentPublicId, saved.getStatus(), caller.getPublicId());
+
+        return toResponse(saved);
     }
 
     private ResumptionAttendanceRecordResponse toResponse(ResumptionAttendanceRecord record) {
@@ -188,6 +249,7 @@ public class ResumptionAttendanceRecordService {
                 .resumptionSessionPublicId(record.getResumptionSession().getPublicId())
                 .studentPublicId(record.getStudent().getPublicId())
                 .checkedInAt(record.getCheckedInAt())
+                .status(record.getEffectiveStatus().name())
                 .build();
     }
 }

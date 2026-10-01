@@ -8,4 +8,5 @@ package com.dayo.capstone.cadence.security.service;
  */
 public interface SmsService {
     void sendOtp(String phoneNumber, String code);
+    void send(String phoneNumber, String message);
 }

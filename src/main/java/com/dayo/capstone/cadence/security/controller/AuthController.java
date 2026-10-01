@@ -66,17 +66,18 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN') or isAuthenticated()")
+    // SUPER_ADMIN, or ADMIN with MANAGE_USERS for non-admin accounts (checked via
+    // UserService.requireCanEdit). Previously open to any authenticated user, which
+    // let anyone change another account's email and then reset its password.
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @PatchMapping("/{targetUserPublicId}/email")
     public ResponseEntity<Void> adminChangeEmail(
             @AuthenticationPrincipal CadencePrincipal principal,
             @PathVariable UUID targetUserPublicId,
             @Valid @RequestBody AdminChangeEmailRequest request
     ) {
-        // Note: permission check (MANAGE_USERS vs SUPER_ADMIN) should be
-        // added here via AdminPermissionService, same pattern as the other
-        // refactored controllers — omitted here for brevity, wire in
-        // following the exact pattern already applied to the other 6.
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        userService.requireCanEdit(caller, userService.findInCallerInstitution(targetUserPublicId, caller));
         authService.adminChangeEmail(targetUserPublicId, request, principal.userPublicId());
         return ResponseEntity.noContent().build();
     }

@@ -2,12 +2,15 @@ package com.dayo.capstone.cadence.attendance.controller;
 
 import com.dayo.capstone.cadence.admin.service.AdminPermissionService;
 import com.dayo.capstone.cadence.attendance.dto.request.AdjustResumptionWindowRequest;
+import com.dayo.capstone.cadence.attendance.dto.request.ManualAttendanceOverrideRequest;
 import com.dayo.capstone.cadence.attendance.dto.request.OpenResumptionSessionRequest;
 import com.dayo.capstone.cadence.attendance.dto.response.CurrentCodeResponse;
+import com.dayo.capstone.cadence.attendance.dto.response.ResumptionAttendanceRecordResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.ResumptionAttendanceRosterEntry;
 import com.dayo.capstone.cadence.attendance.dto.response.ResumptionSessionQrRouteResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.ResumptionSessionResponse;
 import com.dayo.capstone.cadence.attendance.model.ResumptionSession;
+import com.dayo.capstone.cadence.attendance.service.ResumptionAttendanceRecordService;
 import com.dayo.capstone.cadence.attendance.service.ResumptionSessionService;
 import com.dayo.capstone.cadence.cohort.service.CohortService;
 import com.dayo.capstone.cadence.common.enums.Permission;
@@ -40,6 +43,7 @@ public class ResumptionSessionController {
     private final UserService userService;
     private final AdminPermissionService adminPermissionService;
     private final CohortService cohortService;
+    private final ResumptionAttendanceRecordService resumptionAttendanceRecordService;
 
     @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @GetMapping("/today")
@@ -83,7 +87,7 @@ public class ResumptionSessionController {
                     caller, Permission.MANAGE_RESUMPTION_CODES, session.getCohort());
         }
 
-        return ResponseEntity.ok(resumptionSessionService.closeManually(publicId, institution));
+        return ResponseEntity.ok(resumptionSessionService.closeManually(publicId, institution, caller));
     }
 
     @PreAuthorize("hasRole('SUPER_ADMIN') or isAuthenticated()")
@@ -163,6 +167,22 @@ public class ResumptionSessionController {
     ) {
         Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
         return ResponseEntity.ok(resumptionSessionService.getAttendanceRoster(publicId, institution));
+    }
+
+    // PRD Section 6.6 — manual override (PRESENT / LATE / ABSENT) for one student.
+    // Same access rule as the roster above; MANAGE_RESUMPTION_CODES checked in the service.
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @PutMapping("/{publicId}/attendance/{studentPublicId}")
+    public ResponseEntity<ResumptionAttendanceRecordResponse> overrideAttendance(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId,
+            @PathVariable UUID studentPublicId,
+            @Valid @RequestBody ManualAttendanceOverrideRequest request
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(resumptionAttendanceRecordService.manualOverride(
+                publicId, studentPublicId, request, caller, institution));
     }
 
     // Public (unauthenticated) — resolves a QR token to enough info for a

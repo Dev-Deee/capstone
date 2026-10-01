@@ -1,5 +1,6 @@
 package com.dayo.capstone.cadence.attendance.service;
 
+import com.dayo.capstone.cadence.attendance.dto.request.ManualAttendanceOverrideRequest;
 import com.dayo.capstone.cadence.attendance.dto.request.MarkAttendanceRequest;
 import com.dayo.capstone.cadence.attendance.dto.response.AttendanceRecordResponse;
 import com.dayo.capstone.cadence.attendance.enums.AttendanceStatus;
@@ -7,17 +8,25 @@ import com.dayo.capstone.cadence.attendance.enums.VerificationMethod;
 import com.dayo.capstone.cadence.attendance.model.AttendanceRecord;
 import com.dayo.capstone.cadence.attendance.model.Session;
 import com.dayo.capstone.cadence.attendance.repository.AttendanceRecordRepository;
+import com.dayo.capstone.cadence.audit.enums.AuditAction;
+import com.dayo.capstone.cadence.audit.service.AuditLogService;
 import com.dayo.capstone.cadence.cohort.model.Cohort;
 import com.dayo.capstone.cadence.cohort.model.CohortEnrollment;
 import com.dayo.capstone.cadence.cohort.repository.CohortEnrollmentRepository;
+import com.dayo.capstone.cadence.common.exception.ResourceNotFoundException;
+import com.dayo.capstone.cadence.institution.model.Institution;
+import com.dayo.capstone.cadence.user.enums.Role;
 import com.dayo.capstone.cadence.user.model.User;
+import com.dayo.capstone.cadence.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -28,6 +37,8 @@ public class AttendanceRecordService {
     private final SessionService sessionService;
     private final TotpService totpService;
     private final CohortEnrollmentRepository cohortEnrollmentRepository;
+    private final UserService userService;
+    private final AuditLogService auditLogService;
 
     @Transactional
     public AttendanceRecordResponse markAttendance(MarkAttendanceRequest request, User student) {
@@ -70,27 +81,51 @@ public class AttendanceRecordService {
         return toResponse(saved);
     }
 
-    // PRD Section 6.6 — facilitator manual override, distinct code path
-    // from normal verification, mandatory reason recorded.
+    // PRD Section 6.6 — manual override, distinct code path from normal
+    // verification, mandatory reason recorded. Same ownership rule as the
+    // session roster: the facilitator who opened the session, or SUPER_ADMIN.
     @Transactional
     public AttendanceRecordResponse manualOverride(
-            java.util.UUID sessionPublicId, java.util.UUID studentPublicId,
-            String reason, User overridingFacilitator
+            UUID sessionPublicId, UUID studentPublicId,
+            ManualAttendanceOverrideRequest request, User caller, Institution callerInstitution
     ) {
         Session session = sessionService.findEntityByPublicId(sessionPublicId);
-
-        if (!session.getFacilitator().getId().equals(overridingFacilitator.getId())) {
-            throw new IllegalArgumentException("Only the facilitator who opened this session may override");
+        if (!session.getCohort().getInstitution().getId().equals(callerInstitution.getId())) {
+            throw new ResourceNotFoundException("Session not found: " + sessionPublicId);
+        }
+        if (!caller.hasRole(Role.SUPER_ADMIN)
+                && !session.getFacilitator().getId().equals(caller.getId())) {
+            throw new AccessDeniedException("Only the facilitator who opened this session or a SUPER_ADMIN may override attendance");
         }
 
-        // Note: student lookup by publicId needs UserService injected here
-        // once this method is wired into a controller — omitted from this
-        // constructor for brevity, add UserService as a dependency when
-        // building the override endpoint.
+        User student = userService.findEntityByPublicId(studentPublicId);
+        cohortEnrollmentRepository.findByStudentAndCohort(student, session.getCohort())
+                .filter(CohortEnrollment::isActive)
+                .orElseThrow(() -> new IllegalArgumentException("Student is not actively enrolled in this session's cohort"));
 
-        throw new UnsupportedOperationException(
-                "Wire UserService lookup + AuditLog entry here before exposing via controller " +
-                        "(Section 6.6's 15% alert threshold also needs a running count check at this point)");
+        AttendanceRecord record = attendanceRecordRepository.findBySessionAndStudent(session, student)
+                .orElseGet(() -> {
+                    AttendanceRecord fresh = new AttendanceRecord();
+                    fresh.setSession(session);
+                    fresh.setStudent(student);
+                    return fresh;
+                });
+        String beforeState = record.getStatus() == null ? null
+                : "{\"status\":\"" + record.getStatus() + "\",\"verificationMethod\":\"" + record.getVerificationMethod() + "\"}";
+
+        record.setStatus(request.getStatus());
+        record.setVerificationMethod(VerificationMethod.MANUAL_OVERRIDE);
+        record.setOverrideReason(request.getReason());
+        record.setSubmittedAt(LocalDateTime.now());
+        AttendanceRecord saved = attendanceRecordRepository.save(record);
+
+        auditLogService.log(caller.getPublicId(), caller.getRoles().toString(), AuditAction.OVERRIDE,
+                "AttendanceRecord", saved.getPublicId(), beforeState,
+                "{\"status\":\"" + saved.getStatus() + "\",\"verificationMethod\":\"MANUAL_OVERRIDE\"}");
+        log.info("Attendance manually overridden: sessionPublicId={}, studentPublicId={}, status={}, by={}",
+                sessionPublicId, studentPublicId, saved.getStatus(), caller.getPublicId());
+
+        return toResponse(saved);
     }
 
     private AttendanceRecordResponse toResponse(AttendanceRecord record) {
