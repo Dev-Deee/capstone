@@ -45,6 +45,11 @@ public class CohortService {
     public List<CohortResponse> getAll() {
         return cohortRepository.findAll().stream().map(this::toResponse).toList();
     }
+
+    @Transactional(readOnly = true)
+    public List<Cohort> getAllByInstitution(com.dayo.capstone.cadence.institution.model.Institution institution) {
+        return cohortRepository.findByInstitution(institution);
+    }
     // Unscoped lookup — used only where the caller's own institution
     // context isn't the relevant trust boundary (e.g. resolving a cohort
     // during self-registration, where the invite code itself already

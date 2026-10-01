@@ -4,11 +4,11 @@ import com.dayo.capstone.cadence.admin.service.AdminPermissionService;
 import com.dayo.capstone.cadence.attendance.dto.request.AdjustResumptionWindowRequest;
 import com.dayo.capstone.cadence.attendance.dto.request.OpenResumptionSessionRequest;
 import com.dayo.capstone.cadence.attendance.dto.response.CurrentCodeResponse;
+import com.dayo.capstone.cadence.attendance.dto.response.ResumptionAttendanceRosterEntry;
 import com.dayo.capstone.cadence.attendance.dto.response.ResumptionSessionQrRouteResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.ResumptionSessionResponse;
 import com.dayo.capstone.cadence.attendance.model.ResumptionSession;
 import com.dayo.capstone.cadence.attendance.service.ResumptionSessionService;
-import com.dayo.capstone.cadence.cohort.model.Cohort;
 import com.dayo.capstone.cadence.cohort.service.CohortService;
 import com.dayo.capstone.cadence.common.enums.Permission;
 import com.dayo.capstone.cadence.institution.model.Institution;
@@ -41,18 +41,12 @@ public class ResumptionSessionController {
     private final AdminPermissionService adminPermissionService;
     private final CohortService cohortService;
 
-    @PreAuthorize("hasRole('SUPER_ADMIN') or isAuthenticated()")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @GetMapping("/today")
     public ResponseEntity<List<ResumptionSessionResponse>> getTodaysSessions(
             @AuthenticationPrincipal CadencePrincipal principal
     ) {
-        User caller = userService.findEntityByPublicId(principal.userPublicId());
         Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
-
-        if (!caller.hasRole(Role.SUPER_ADMIN)) {
-            adminPermissionService.requirePermission(caller, Permission.MANAGE_RESUMPTION_CODES);
-        }
-
         return ResponseEntity.ok(resumptionSessionService.getTodaysSessions(institution));
     }
 
@@ -134,9 +128,11 @@ public class ResumptionSessionController {
     }
 
     // Returns the live rotating TOTP code and seconds until rotation.
-    // Requires MANAGE_RESUMPTION_CODES permission (or SUPER_ADMIN) — same
-    // ownership check as the other mutating endpoints on this resource.
-    @PreAuthorize("hasRole('SUPER_ADMIN') or isAuthenticated()")
+    // Permission check (FACILITATOR / SUPER_ADMIN / MANAGE_RESUMPTION_CODES) is enforced
+    // inside the service so all lazy-association accesses stay within one transaction
+    // (spring.jpa.open-in-view=false — accessing session.getCohort() outside a transaction
+    // throws LazyInitializationException → 500).
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/{publicId}/current-code")
     public ResponseEntity<CurrentCodeResponse> getCurrentCode(
             @AuthenticationPrincipal CadencePrincipal principal,
@@ -144,14 +140,29 @@ public class ResumptionSessionController {
     ) {
         User caller = userService.findEntityByPublicId(principal.userPublicId());
         Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
-        ResumptionSession session = resumptionSessionService.findEntityByPublicId(publicId);
+        return ResponseEntity.ok(resumptionSessionService.getCurrentCode(publicId, institution, caller));
+    }
 
-        if (!caller.hasRole(Role.SUPER_ADMIN)) {
-            adminPermissionService.requirePermissionForCohort(
-                    caller, Permission.MANAGE_RESUMPTION_CODES, session.getCohort());
-        }
+    // All resumption sessions for a cohort, newest first — attendance history picker.
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @GetMapping
+    public ResponseEntity<List<ResumptionSessionResponse>> listByCohort(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @RequestParam UUID cohortPublicId
+    ) {
+        Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(resumptionSessionService.getSessionsByCohort(cohortPublicId, institution));
+    }
 
-        return ResponseEntity.ok(resumptionSessionService.getCurrentCode(publicId, institution));
+    // Attendance roster — present/absent per enrolled student for this resumption session.
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @GetMapping("/{publicId}/attendance")
+    public ResponseEntity<List<ResumptionAttendanceRosterEntry>> getAttendanceRoster(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId
+    ) {
+        Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(resumptionSessionService.getAttendanceRoster(publicId, institution));
     }
 
     // Public (unauthenticated) — resolves a QR token to enough info for a

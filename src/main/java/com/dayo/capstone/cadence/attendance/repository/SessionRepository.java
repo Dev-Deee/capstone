@@ -2,6 +2,8 @@ package com.dayo.capstone.cadence.attendance.repository;
 
 import com.dayo.capstone.cadence.attendance.model.Session;
 import com.dayo.capstone.cadence.cohort.model.Cohort;
+import com.dayo.capstone.cadence.institution.model.Subject;
+import com.dayo.capstone.cadence.user.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -19,4 +21,8 @@ public interface SessionRepository extends JpaRepository<Session, Long> {
     // TOTP attendance validation to find candidates for a student's cohort.
     @Query("SELECT s FROM Session s WHERE s.cohort = :cohort AND s.isOpen = true AND s.expiresAt > CURRENT_TIMESTAMP")
     List<Session> findOpenByCohort(@Param("cohort") Cohort cohort);
+
+    // Attendance history — facilitator sees their own, SUPER_ADMIN sees all.
+    List<Session> findByFacilitatorAndCohortAndSubjectOrderByCreatedAtDesc(User facilitator, Cohort cohort, Subject subject);
+    List<Session> findByCohortAndSubjectOrderByCreatedAtDesc(Cohort cohort, Subject subject);
 }

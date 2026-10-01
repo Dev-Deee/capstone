@@ -25,4 +25,13 @@ public interface ResumptionSessionRepository extends JpaRepository<ResumptionSes
 
     @Query("SELECT r FROM ResumptionSession r WHERE r.cohort = :cohort AND r.isOpen = true AND r.expiresAt > CURRENT_TIMESTAMP")
     List<ResumptionSession> findOpenByCohort(@Param("cohort") Cohort cohort);
+
+    // Attendance history — all sessions for a cohort, newest first.
+    List<ResumptionSession> findByCohortOrderByResumptionDateDesc(Cohort cohort);
+
+    // Sessions for a cohort on or after a given date — respects late-joiner enrolledAt.
+    @Query("SELECT r FROM ResumptionSession r WHERE r.cohort = :cohort AND r.resumptionDate >= :since ORDER BY r.resumptionDate DESC")
+    List<ResumptionSession> findByCohortSince(
+            @Param("cohort") Cohort cohort,
+            @Param("since") LocalDate since);
 }
