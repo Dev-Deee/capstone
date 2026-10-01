@@ -12,5 +12,7 @@ public record InviteCodeResponse(
         UUID cohortPublicId,
         LocalDateTime expiresAt,
         int maxUses,
+        int useCount,
+        boolean valid,
         LocalDateTime createdAt
 ) {}

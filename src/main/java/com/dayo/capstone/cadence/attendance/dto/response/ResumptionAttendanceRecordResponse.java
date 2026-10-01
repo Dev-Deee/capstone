@@ -11,5 +11,6 @@ public record ResumptionAttendanceRecordResponse(
         UUID publicId,
         UUID resumptionSessionPublicId,
         UUID studentPublicId,
-        LocalDateTime checkedInAt
+        LocalDateTime checkedInAt,
+        String status
 ) {}

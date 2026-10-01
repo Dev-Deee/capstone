@@ -1,6 +1,7 @@
 package com.dayo.capstone.cadence.security;
 
 import com.dayo.capstone.cadence.security.repository.BlacklistedTokenRepository;
+import com.dayo.capstone.cadence.user.repository.UserRepository;
 import com.dayo.capstone.cadence.security.service.JwtService;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -29,6 +30,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final BlacklistedTokenRepository blacklistedTokenRepository;
+    private final UserRepository userRepository;
 
     @Override
     protected void doFilterInternal(
@@ -58,6 +60,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
 
             UUID userPublicId = UUID.fromString(claims.getSubject());
+
+            // Deactivated/deleted accounts lose access immediately, not when
+            // their (up to 15-minute) access token happens to expire.
+            if (!userRepository.existsByPublicIdAndIsActiveTrueAndIsDeletedFalse(userPublicId)) {
+                log.warn("Rejected token for inactive or deleted user: userPublicId={}", userPublicId);
+                SecurityContextHolder.clearContext();
+                filterChain.doFilter(request, response);
+                return;
+            }
 
             @SuppressWarnings("unchecked")
             List<String> roleClaims = claims.get("roles", List.class);

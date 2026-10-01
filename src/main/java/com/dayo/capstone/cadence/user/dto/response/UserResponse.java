@@ -24,5 +24,8 @@ public record UserResponse(
         boolean webAuthnCapable,
         LocalDateTime createdAt,
         UUID cohortPublicId,
-        String cohortName
+        String cohortName,
+        String institutionStudentId,
+        boolean active,
+        boolean accountPending
 ) {}

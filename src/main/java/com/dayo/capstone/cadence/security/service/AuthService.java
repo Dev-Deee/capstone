@@ -9,7 +9,7 @@ import com.dayo.capstone.cadence.audit.service.AuditLogService;
 import com.dayo.capstone.cadence.cohort.model.CohortEnrollment;
 import com.dayo.capstone.cadence.cohort.model.CohortInviteCode;
 import com.dayo.capstone.cadence.cohort.repository.CohortEnrollmentRepository;
-import com.dayo.capstone.cadence.cohort.repository.CohortInviteCodeRepository;
+import com.dayo.capstone.cadence.cohort.service.CohortInviteCodeService;
 import com.dayo.capstone.cadence.cohort.service.CohortEnrollmentService;
 import com.dayo.capstone.cadence.cohort.service.CohortService;
 import com.dayo.capstone.cadence.common.exception.ResourceNotFoundException;
@@ -49,7 +49,7 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final CohortEnrollmentRepository cohortEnrollmentRepository;
-    private final CohortInviteCodeRepository cohortInviteCodeRepository;
+    private final CohortInviteCodeService cohortInviteCodeService;
     private final RefreshTokenRepository refreshTokenRepository;
     private final BlacklistedTokenRepository blacklistedTokenRepository;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
@@ -88,16 +88,7 @@ public class AuthService {
             throw new IllegalArgumentException("Consent is required to register");
         }
 
-        CohortInviteCode invite = cohortInviteCodeRepository.findByCode(request.getInviteCode())
-                .filter(CohortInviteCode::isValid)
-                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired invite code"));
-
-        if (!invite.getCohort().isActive()) {
-            throw new IllegalArgumentException("This cohort is no longer active");
-        }
-        if (!invite.getCohort().getInstitution().isActive()) {
-            throw new IllegalArgumentException("This institution is no longer active");
-        }
+        CohortInviteCode invite = cohortInviteCodeService.resolveRedeemable(request.getInviteCode());
 
         User user = new User();
         user.setInstitution(invite.getCohort().getInstitution());
@@ -118,8 +109,7 @@ public class AuthService {
         User saved = userRepository.save(user);
         cohortEnrollmentService.enroll(saved, invite.getCohort());
 
-        invite.setUseCount(invite.getUseCount() + 1);
-        cohortInviteCodeRepository.save(invite);
+        cohortInviteCodeService.markUsed(invite);
 
         sendEmailVerification(saved);
 
@@ -179,6 +169,11 @@ public class AuthService {
             throw new BadCredentialsException("Invalid credentials");
         }
 
+        if (!user.isActive()) {
+            log.warn("Login attempt on deactivated account: userPublicId={}", user.getPublicId());
+            throw new BadCredentialsException("This account has been deactivated. Contact your administrator.");
+        }
+
         user.setFailedLoginAttempts(0);
         user.setLockedUntil(null);
         userRepository.save(user);
@@ -225,7 +220,7 @@ public class AuthService {
                 .orElseThrow(() -> new BadCredentialsException("Invalid or expired refresh token"));
 
         User user = storedToken.getUser();
-        if (user.isDeleted()) {
+        if (user.isDeleted() || !user.isActive()) {
             throw new BadCredentialsException("Invalid or expired refresh token");
         }
 
@@ -275,13 +270,18 @@ public class AuthService {
         User user = userRepository.findByPublicId(targetUserPublicId)
                 .filter(u -> !u.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + targetUserPublicId));
+        User actor = userRepository.findByPublicId(actorPublicId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + actorPublicId));
+        if (!user.getInstitution().getId().equals(actor.getInstitution().getId())) {
+            throw new ResourceNotFoundException("User not found: " + targetUserPublicId);
+        }
 
         String oldEmail = user.getEmail();
         user.setEmail(request.getNewEmail());
         userRepository.save(user);
         refreshTokenRepository.revokeAllForUser(user, LocalDateTime.now());
 
-        auditLogService.log(actorPublicId, "ADMIN", AuditAction.UPDATE, "User", targetUserPublicId,
+        auditLogService.log(actorPublicId, actor.getRoles().toString(), AuditAction.UPDATE, "User", targetUserPublicId,
                 "{\"email\":\"" + oldEmail + "\"}", "{\"email\":\"" + request.getNewEmail() + "\"}");
 
         log.info("Admin changed email: userPublicId={}, oldEmail={}, newEmail={}, reason={}",

@@ -17,4 +17,9 @@ public class ConsoleSmsService implements SmsService {
     public void sendOtp(String phoneNumber, String code) {
         log.info("SMS content (always logged for local testing) — to={}, otp={}", phoneNumber, code);
     }
+
+    @Override
+    public void send(String phoneNumber, String message) {
+        log.info("SMS content (always logged for local testing) — to={}, message={}", phoneNumber, message);
+    }
 }

@@ -2,12 +2,15 @@ package com.dayo.capstone.cadence.user.controller;
 
 import com.dayo.capstone.cadence.admin.service.AdminPermissionService;
 import com.dayo.capstone.cadence.common.enums.Permission;
+import com.dayo.capstone.cadence.institution.service.InstitutionService;
 import com.dayo.capstone.cadence.security.CadencePrincipal;
+import com.dayo.capstone.cadence.user.dto.request.UpdateUserRequest;
 import com.dayo.capstone.cadence.user.dto.response.UserResponse;
 import com.dayo.capstone.cadence.user.enums.Role;
 import com.dayo.capstone.cadence.user.model.User;
 import com.dayo.capstone.cadence.user.service.UserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,6 +30,7 @@ public class UserController {
 
     private final UserService userService;
     private final AdminPermissionService adminPermissionService;
+    private final InstitutionService institutionService;
 
     // A user may always view their own record.
     @GetMapping("/me")
@@ -36,7 +40,7 @@ public class UserController {
 
     // Viewing another specific user is admin-only — a student has no
     // legitimate reason to look up an arbitrary facilitator's record by ID.
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @GetMapping("/{publicId}")
     public ResponseEntity<UserResponse> getOne(
             @AuthenticationPrincipal CadencePrincipal principal,
@@ -46,11 +50,12 @@ public class UserController {
         if (!caller.hasRole(Role.SUPER_ADMIN)) {
             adminPermissionService.requirePermission(caller, Permission.MANAGE_USERS);
         }
+        userService.findInCallerInstitution(publicId, caller); // 404 outside the caller's institution
         return ResponseEntity.ok(userService.getByPublicId(publicId));
     }
 
     // Listing the full user directory is admin-only.
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @GetMapping
     public ResponseEntity<List<UserResponse>> getAll(
             @AuthenticationPrincipal CadencePrincipal principal
@@ -59,14 +64,58 @@ public class UserController {
         if (!caller.hasRole(Role.SUPER_ADMIN)) {
             adminPermissionService.requirePermission(caller, Permission.MANAGE_USERS);
         }
-        return ResponseEntity.ok(userService.getAll());
+        return ResponseEntity.ok(userService.getAll(
+                institutionService.findEntityByUserPublicId(principal.userPublicId())));
+    }
+
+    // User management. Who may act on whom (SUPER_ADMIN / ADMIN with MANAGE_USERS /
+    // FACILITATOR for their own students), institution scoping, self/super-admin
+    // guards and audit logging all live in UserService.
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @PatchMapping("/{publicId}")
+    public ResponseEntity<UserResponse> update(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId,
+            @Valid @RequestBody UpdateUserRequest request
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        return ResponseEntity.ok(userService.updateByAdmin(publicId, request, caller));
+    }
+
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN') or hasRole('FACILITATOR')")
+    @PatchMapping("/{publicId}/activate")
+    public ResponseEntity<UserResponse> activate(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        return ResponseEntity.ok(userService.setActive(publicId, true, caller));
+    }
+
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN') or hasRole('FACILITATOR')")
+    @PatchMapping("/{publicId}/deactivate")
+    public ResponseEntity<UserResponse> deactivate(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        return ResponseEntity.ok(userService.setActive(publicId, false, caller));
+    }
+
+    // Soft delete + anonymize (PRD 18.1) — never a hard delete.
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @DeleteMapping("/{publicId}")
+    public ResponseEntity<Void> delete(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        userService.softDeleteByAdmin(publicId, caller);
+        return ResponseEntity.noContent().build();
     }
 
     // A user may delete (soft-delete/anonymize) their own account.
-    // Admin-triggered deletion of ANOTHER user is a separate, deliberately
-    // absent capability for now — removing a facilitator/student account
-    // administratively deserves its own reviewed flow, not a side effect
-    // of reusing this endpoint with a role check bolted on.
+    // Admin deletion of another user is DELETE /{publicId} above.
     @DeleteMapping("/me")
     public ResponseEntity<Void> deleteSelf(@AuthenticationPrincipal CadencePrincipal principal) {
         userService.softDeleteAndAnonymize(principal.userPublicId());
@@ -90,6 +139,14 @@ public class UserController {
         UserResponse response = userService.updateProfileImage(
                 principal.userPublicId(), file.getBytes(), file.getOriginalFilename());
         return ResponseEntity.ok(response);
+    }
+
+    // A facilitator's roster: students actively enrolled in cohorts they teach.
+    @PreAuthorize("hasRole('FACILITATOR')")
+    @GetMapping("/my-students")
+    public ResponseEntity<List<UserResponse>> getMyStudents(@AuthenticationPrincipal CadencePrincipal principal) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        return ResponseEntity.ok(userService.getStudentsForFacilitator(caller));
     }
 
     // No @PreAuthorize — same open pattern as SubjectController.getAll()

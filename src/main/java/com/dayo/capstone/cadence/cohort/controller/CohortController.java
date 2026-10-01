@@ -6,6 +6,9 @@ import com.dayo.capstone.cadence.cohort.dto.request.EnrollStudentRequest;
 import com.dayo.capstone.cadence.cohort.dto.request.UpdateCohortRequest;
 import com.dayo.capstone.cadence.cohort.dto.response.CohortResponse;
 import com.dayo.capstone.cadence.cohort.dto.request.CreateInviteCodeRequest;
+import com.dayo.capstone.cadence.cohort.dto.request.JoinCohortRequest;
+import com.dayo.capstone.cadence.cohort.dto.request.SendInviteCodeRequest;
+import com.dayo.capstone.cadence.cohort.dto.response.InviteCodeSendResult;
 import com.dayo.capstone.cadence.cohort.dto.response.InviteCodeResponse;
 import com.dayo.capstone.cadence.cohort.model.Cohort;
 import com.dayo.capstone.cadence.cohort.service.CohortEnrollmentService;
@@ -80,7 +83,7 @@ public class CohortController {
     // Nested under a specific cohort's own path, and given its own method
     // name — resolves both the duplicate-mapping and duplicate-method-name
     // problems from the merged version.
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @PostMapping("/invite-codes")
     public ResponseEntity<InviteCodeResponse> createInviteCode(
             @AuthenticationPrincipal CadencePrincipal principal,
@@ -98,6 +101,42 @@ public class CohortController {
         }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(inviteCodeService.create(request, callerInstitution));
+    }
+
+    // Permission scope (MANAGE_INVITE_CODES for the cohort) is checked in the service.
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @GetMapping("/{cohortPublicId}/invite-codes")
+    public ResponseEntity<List<InviteCodeResponse>> listInviteCodes(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID cohortPublicId
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        Institution callerInstitution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(inviteCodeService.listForCohort(cohortPublicId, callerInstitution, caller));
+    }
+
+    // Emails and/or texts an existing code to students. Same permission rule as above.
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
+    @PostMapping("/invite-codes/{inviteCodePublicId}/send")
+    public ResponseEntity<InviteCodeSendResult> sendInviteCode(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID inviteCodePublicId,
+            @Valid @RequestBody SendInviteCodeRequest request
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        Institution callerInstitution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(inviteCodeService.send(inviteCodePublicId, request, callerInstitution, caller));
+    }
+
+    // An already-registered student joining a cohort with an invite code.
+    @PreAuthorize("hasRole('STUDENT')")
+    @PostMapping("/join")
+    public ResponseEntity<CohortResponse> join(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @Valid @RequestBody JoinCohortRequest request
+    ) {
+        User student = userService.findEntityByPublicId(principal.userPublicId());
+        return ResponseEntity.ok(inviteCodeService.join(request.getInviteCode(), student));
     }
 
     @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")

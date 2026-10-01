@@ -1,5 +1,7 @@
 package com.dayo.capstone.cadence.attendance.model;
 
+import com.dayo.capstone.cadence.attendance.enums.AttendanceStatus;
+import com.dayo.capstone.cadence.attendance.enums.VerificationMethod;
 import com.dayo.capstone.cadence.common.BaseEntity;
 import com.dayo.capstone.cadence.user.model.User;
 import jakarta.persistence.*;
@@ -39,4 +41,20 @@ public class ResumptionAttendanceRecord extends BaseEntity {
     private Boolean webAuthnVerified;
 
     private Integer confidenceScore;
+
+    // Nullable for rows created before manual overrides existed — read
+    // through getEffectiveStatus(), where null means a normal code check-in.
+    @Enumerated(EnumType.STRING)
+    private AttendanceStatus status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "verification_method")
+    private VerificationMethod verificationMethod;
+
+    @Column(name = "override_reason")
+    private String overrideReason;
+
+    public AttendanceStatus getEffectiveStatus() {
+        return status != null ? status : AttendanceStatus.PRESENT;
+    }
 }

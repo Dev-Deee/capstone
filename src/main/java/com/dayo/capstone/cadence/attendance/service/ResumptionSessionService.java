@@ -156,11 +156,11 @@ public class ResumptionSessionService {
     }
 
     @Transactional
-    public ResumptionSessionResponse closeManually(UUID publicId, Institution callerInstitution) {
+    public ResumptionSessionResponse closeManually(UUID publicId, Institution callerInstitution, User caller) {
         ResumptionSession session = findEntityByPublicIdScopedToInstitution(publicId, callerInstitution);
         session.setOpen(false);
         session.setClosedAt(LocalDateTime.now());
-        session.setClosedBy(SessionClosedBy.MANAGEMENT);
+        session.setClosedBy(SessionClosedBy.forCaller(caller));
         ResumptionSession saved = resumptionSessionRepository.save(session);
         log.info("Resumption session closed manually: publicId={}", saved.getPublicId());
         return toResponse(saved);
@@ -208,7 +208,7 @@ public class ResumptionSessionService {
                     return ResumptionAttendanceRosterEntry.builder()
                             .studentPublicId(student.getPublicId())
                             .studentName(student.getFullName())
-                            .status(record != null ? "PRESENT" : "ABSENT")
+                            .status(record != null ? record.getEffectiveStatus().name() : "ABSENT")
                             .markedAt(record != null ? record.getCheckedInAt() : null)
                             .matchedInstitutionNetwork(record != null ? record.getMatchedInstitutionNetwork() : null)
                             .webAuthnVerified(record != null ? record.getWebAuthnVerified() : null)
