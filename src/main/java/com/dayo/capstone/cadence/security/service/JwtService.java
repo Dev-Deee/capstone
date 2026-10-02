@@ -26,7 +26,7 @@ public class JwtService {
     /**
      * PRD Section 3 — roles is a claims ARRAY, not a single string, because
      * a user can hold multiple roles simultaneously (e.g. FACILITATOR +
-     * MANAGEMENT). Every consumer of this token must check membership in
+     * ADMIN). Every consumer of this token must check membership in
      * the array, never assume a single value.
      */
     public String generateAccessToken(UUID userPublicId, Set<String> roles) {

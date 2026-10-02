@@ -47,7 +47,7 @@ public class ResumptionSessionService {
     private final CohortEnrollmentRepository cohortEnrollmentRepository;
 
     @Transactional
-    public ResumptionSessionResponse open(OpenResumptionSessionRequest request, User facilitator, Institution institution) {
+    public ResumptionSessionResponse open(OpenResumptionSessionRequest request, User openedBy, Institution institution) {
         // FacilitatorCohort assignment check deliberately removed — any
         // facilitator at the institution may open resumption for any cohort
         // at that institution, regardless of whether they teach it.
@@ -71,8 +71,8 @@ public class ResumptionSessionService {
         session.setExpiresAt(LocalDateTime.now().plusMinutes(request.getExpiryMinutes()));
 
         ResumptionSession saved = resumptionSessionRepository.save(session);
-        log.info("Resumption session opened by facilitator: cohortPublicId={}, facilitatorPublicId={}, publicId={}",
-                cohort.getPublicId(), facilitator.getPublicId(), saved.getPublicId());
+        log.info("Resumption session opened: cohortPublicId={}, openedByPublicId={}, publicId={}",
+                cohort.getPublicId(), openedBy.getPublicId(), saved.getPublicId());
 
         return toResponse(saved);
     }
@@ -114,7 +114,9 @@ public class ResumptionSessionService {
                 .build();
     }
 
-    // Public — used by the QR-route endpoint (unauthenticated).
+    // Public — used by the QR-route endpoint (unauthenticated). @Transactional
+    // because the response reads the lazy cohort (OSIV is disabled).
+    @Transactional(readOnly = true)
     public ResumptionSessionQrRouteResponse getQrRouteInfo(String qrToken) {
         ResumptionSession session = resumptionSessionRepository.findByQrToken(qrToken)
                 .filter(ResumptionSession::isCurrentlyOpen)
@@ -135,6 +137,8 @@ public class ResumptionSessionService {
         return session;
     }
 
+    // @Transactional: toResponse() reads the lazy cohort (OSIV is disabled).
+    @Transactional(readOnly = true)
     public List<ResumptionSessionResponse> getTodaysSessions(Institution institution) {
         LocalDate today = LocalDate.now();
         return resumptionSessionRepository.findByCohort_InstitutionAndResumptionDate(institution, today)

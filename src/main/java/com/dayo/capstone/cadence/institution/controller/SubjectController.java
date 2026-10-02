@@ -37,7 +37,7 @@ public class SubjectController {
 
     // Admin-gated, same boundary as Cohort creation — a facilitator
     // doesn't get to invent new subjects unilaterally.
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @PostMapping
     public ResponseEntity<SubjectResponse> create(
             @AuthenticationPrincipal CadencePrincipal principal,
@@ -51,7 +51,7 @@ public class SubjectController {
         return ResponseEntity.status(HttpStatus.CREATED).body(subjectService.create(request, institution));
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @PatchMapping("/{publicId}")
     public ResponseEntity<SubjectResponse> update(
             @AuthenticationPrincipal CadencePrincipal principal,

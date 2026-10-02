@@ -65,7 +65,7 @@ public class CohortService {
                 .orElseThrow(() -> new ResourceNotFoundException("Cohort not found: " + publicId));
     }
 
-    // Tenant-scoped lookup — used anywhere a MANAGEMENT-or-below caller's
+    // Tenant-scoped lookup — used anywhere a caller's
     // own institution must be enforced (PRD Section 18.1). Deliberately
     // throws the SAME "not found" message on a cross-tenant hit as on a
     // genuine miss — never reveal that a cohort exists at a DIFFERENT

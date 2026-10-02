@@ -22,7 +22,7 @@ public class InstitutionController {
 
     private final InstitutionService institutionService;
 
-    // Institution creation is SUPER_ADMIN only — even MANAGEMENT at an
+    // Institution creation is SUPER_ADMIN only — even an ADMIN at an
     // existing institution has no business creating a new one.
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     @PostMapping

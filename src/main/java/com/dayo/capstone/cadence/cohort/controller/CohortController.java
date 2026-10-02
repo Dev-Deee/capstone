@@ -48,7 +48,7 @@ public class CohortController {
     private final AdminPermissionService adminPermissionService;
     private final CohortEnrollmentService cohortEnrollmentService;
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @PostMapping
     public ResponseEntity<CohortResponse> create(
             @AuthenticationPrincipal CadencePrincipal principal,
