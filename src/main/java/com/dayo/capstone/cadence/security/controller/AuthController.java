@@ -7,6 +7,7 @@ import com.dayo.capstone.cadence.security.dto.request.*;
 import com.dayo.capstone.cadence.security.dto.response.ActiveDeviceResponse;
 import com.dayo.capstone.cadence.security.dto.response.AuthResponse;
 import com.dayo.capstone.cadence.security.service.AuthService;
+import com.dayo.capstone.cadence.security.service.InviteService;
 import com.dayo.capstone.cadence.user.model.User;
 import com.dayo.capstone.cadence.user.service.UserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -31,6 +32,7 @@ public class AuthController {
     private final AuthService authService;
     private final InstitutionService institutionService;
     private final UserService userService;
+    private final InviteService inviteService;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -45,6 +47,19 @@ public class AuthController {
         String userAgent = httpRequest.getHeader("User-Agent");
         String ipAddress = httpRequest.getRemoteAddr();
         return ResponseEntity.ok(authService.login(request, userAgent, ipAddress));
+    }
+
+    // Move this session into another institution the caller belongs to (or,
+    // for a platform admin only, any institution — audited).
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/switch-institution")
+    public ResponseEntity<AuthResponse> switchInstitution(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @Valid @RequestBody SwitchInstitutionRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        return ResponseEntity.ok(authService.switchInstitution(principal.userPublicId(), request.getInstitutionPublicId(),
+                httpRequest.getHeader("User-Agent"), httpRequest.getRemoteAddr()));
     }
 
     @PostMapping("/logout")
@@ -108,14 +123,20 @@ public class AuthController {
     ) {
         Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
         User caller = userService.findEntityByPublicId(principal.userPublicId());
-        authService.createStaffInvite(request, institution, caller);
+        inviteService.create(request, institution, caller);
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
+    // Brand-new invitee: sets a password, which creates their account and
+    // membership, and signs them in. An invitee who already has an account
+    // gets 409 and accepts via POST /api/invites/accept after signing in.
     @PostMapping("/accept-invite")
-    public ResponseEntity<Void> acceptStaffInvite(@Valid @RequestBody AcceptStaffInviteRequest request) {
-        authService.acceptStaffInvite(request);
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<AuthResponse> acceptStaffInvite(
+            @Valid @RequestBody AcceptStaffInviteRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        return ResponseEntity.ok(inviteService.acceptAsNewAccount(request,
+                httpRequest.getHeader("User-Agent"), httpRequest.getRemoteAddr()));
     }
 
     @GetMapping("/devices")

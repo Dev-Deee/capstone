@@ -17,6 +17,12 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
     @Modifying
     @Query("UPDATE RefreshToken r SET r.revoked = true, r.revokedAt = :now WHERE r.user = :user AND r.revoked = false")
     void revokeAllForUser(User user, LocalDateTime now);
+
+    // Ends a user's sessions in one institution only (suspension/removal there
+    // must not sign them out of the other institutions they belong to).
+    @Modifying
+    @Query("UPDATE RefreshToken r SET r.revoked = true, r.revokedAt = :now WHERE r.user = :user AND r.institution = :institution AND r.revoked = false")
+    void revokeAllForUserInInstitution(User user, com.dayo.capstone.cadence.institution.model.Institution institution, LocalDateTime now);
     long deleteByExpiresAtBefore(LocalDateTime cutoff);
     List<RefreshToken> findByUserAndRevokedFalseAndExpiresAtAfter(User user, LocalDateTime now);
     Optional<RefreshToken> findByPublicId(UUID publicId);

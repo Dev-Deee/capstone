@@ -51,7 +51,7 @@ public class WebAuthnService {
     private final WebAuthnCredentialRepository credentialRepository;
     private final UserRepository userRepository;
     private final JwtService jwtService;
-    private final RefreshTokenRepository refreshTokenRepository; // reuse existing token issuance
+    private final SessionTokenService sessionTokenService;
 
     @Value("${app.webauthn.rp-id}")
     private String rpId;
@@ -200,18 +200,10 @@ public class WebAuthnService {
 
         // JWT issuance is deliberately AFTER validate() — a successful return from
         // validate() without throwing is the only gate to reaching these lines.
+        // Same session issuance as password login (also persists the refresh
+        // token, which this path previously returned without storing).
         User user = credential.getUser();
-        Set<String> roleNames = user.getRoles().stream().map(Role::name).collect(Collectors.toSet());
-        String accessToken = jwtService.generateAccessToken(user.getPublicId(), roleNames);
-        String rawRefreshToken = jwtService.generateRefreshTokenRaw();
-
         log.info("WebAuthn authentication successful: userPublicId={}", user.getPublicId());
-
-        return AuthResponse.builder()
-                .userPublicId(user.getPublicId())
-                .accessToken(accessToken)
-                .refreshToken(rawRefreshToken)
-                .roles(roleNames)
-                .build();
+        return sessionTokenService.issue(user, sessionTokenService.defaultInstitutionFor(user), userAgent, ipAddress);
     }
 }

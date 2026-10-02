@@ -15,4 +15,6 @@ public interface InstitutionRepository extends JpaRepository<Institution, Long> 
     boolean existsByPublicId(UUID publicId);
 
     Optional<Institution> findByName(String name);
+    Optional<Institution> findBySlug(String slug);
+    boolean existsBySlug(String slug);
 }

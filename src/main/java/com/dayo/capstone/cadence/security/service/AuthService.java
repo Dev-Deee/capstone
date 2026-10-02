@@ -1,20 +1,14 @@
 package com.dayo.capstone.cadence.security.service;
 
-import com.dayo.capstone.cadence.admin.model.AdminRole;
-import com.dayo.capstone.cadence.admin.model.UserAdminRoleAssignment;
-import com.dayo.capstone.cadence.admin.repository.AdminRoleRepository;
-import com.dayo.capstone.cadence.admin.repository.UserAdminRoleAssignmentRepository;
 import com.dayo.capstone.cadence.audit.enums.AuditAction;
 import com.dayo.capstone.cadence.audit.service.AuditLogService;
-import com.dayo.capstone.cadence.cohort.model.CohortEnrollment;
 import com.dayo.capstone.cadence.cohort.model.CohortInviteCode;
-import com.dayo.capstone.cadence.cohort.repository.CohortEnrollmentRepository;
 import com.dayo.capstone.cadence.cohort.service.CohortInviteCodeService;
 import com.dayo.capstone.cadence.cohort.service.CohortEnrollmentService;
-import com.dayo.capstone.cadence.cohort.service.CohortService;
 import com.dayo.capstone.cadence.common.exception.ResourceNotFoundException;
 import com.dayo.capstone.cadence.institution.model.Institution;
-import com.dayo.capstone.cadence.security.config.JwtProperties;
+import com.dayo.capstone.cadence.institution.repository.InstitutionRepository;
+import com.dayo.capstone.cadence.institution.service.MembershipService;
 import com.dayo.capstone.cadence.security.dto.request.*;
 import com.dayo.capstone.cadence.security.dto.response.ActiveDeviceResponse;
 import com.dayo.capstone.cadence.security.dto.response.AuthResponse;
@@ -34,10 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -48,24 +41,21 @@ public class AuthService {
     private static final int LOCKOUT_MINUTES = 15;
 
     private final UserRepository userRepository;
-    private final CohortEnrollmentRepository cohortEnrollmentRepository;
     private final CohortInviteCodeService cohortInviteCodeService;
     private final RefreshTokenRepository refreshTokenRepository;
     private final BlacklistedTokenRepository blacklistedTokenRepository;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
-    private final StaffInviteTokenRepository staffInviteTokenRepository;
     private final PhoneVerificationTokenRepository phoneVerificationTokenRepository;
-    private final AdminRoleRepository adminRoleRepository;
-    private final UserAdminRoleAssignmentRepository userAdminRoleAssignmentRepository;
-    private final CohortService cohortService;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
-    private final JwtProperties jwtProperties;
     private final EmailService emailService;
     private final SmsService smsService;
     private final AuditLogService auditLogService;
     private final CohortEnrollmentService cohortEnrollmentService;
+    private final MembershipService membershipService;
+    private final SessionTokenService sessionTokenService;
+    private final InstitutionRepository institutionRepository;
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
@@ -91,7 +81,6 @@ public class AuthService {
         CohortInviteCode invite = cohortInviteCodeService.resolveRedeemable(request.getInviteCode());
 
         User user = new User();
-        user.setInstitution(invite.getCohort().getInstitution());
         user.setFirstName(request.getFirstName());
         user.setMiddleName(request.getMiddleName());
         user.setLastName(request.getLastName());
@@ -99,7 +88,6 @@ public class AuthService {
         user.setPhoneNumber(request.getPhoneNumber());
         user.setInstitutionStudentId(request.getInstitutionStudentId());
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
-        user.setRoles(Set.of(Role.STUDENT)); // hardcoded — never derived from request or invite
         user.setConsentGiven(true);
         user.setConsentTimestamp(LocalDateTime.now());
         user.setConsentVersion("v1");
@@ -107,6 +95,9 @@ public class AuthService {
         user.setEmailVerified(false);  // but must verify email before their NEXT login
 
         User saved = userRepository.save(user);
+        // STUDENT is hardcoded — never derived from request or invite.
+        Institution institution = invite.getCohort().getInstitution();
+        membershipService.add(saved, institution, EnumSet.of(Role.STUDENT));
         cohortEnrollmentService.enroll(saved, invite.getCohort());
 
         cohortInviteCodeService.markUsed(invite);
@@ -116,7 +107,7 @@ public class AuthService {
         log.info("Self-registration successful: userPublicId={}, cohortPublicId={}, role=STUDENT",
                 saved.getPublicId(), invite.getCohort().getPublicId());
 
-        return issueTokens(saved, null, null);
+        return sessionTokenService.issue(saved, institution, null, null);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -178,11 +169,14 @@ public class AuthService {
         user.setLockedUntil(null);
         userRepository.save(user);
 
-        auditLogService.log(user.getPublicId(), user.getRoles().toString(),
+        // Lands in the last institution used (or the oldest membership).
+        AuthResponse response = sessionTokenService.issue(
+                user, sessionTokenService.defaultInstitutionFor(user), userAgent, ipAddress);
+        auditLogService.log(user.getPublicId(), response.roles().toString(),
                 AuditAction.LOGIN, "User", user.getPublicId());
 
-        log.info("Login successful: userPublicId={}", user.getPublicId());
-        return issueTokens(user, userAgent, ipAddress);
+        log.info("Login successful: userPublicId={}, institutionPublicId={}", user.getPublicId(), response.institutionPublicId());
+        return response;
     }
 
     @Transactional
@@ -224,20 +218,33 @@ public class AuthService {
             throw new BadCredentialsException("Invalid or expired refresh token");
         }
 
-        storedToken.setLastUsedAt(LocalDateTime.now());
-        refreshTokenRepository.save(storedToken);
-
-        Set<String> roleNames = user.getRoles().stream().map(Role::name).collect(Collectors.toSet());
-        String newAccessToken = jwtService.generateAccessToken(user.getPublicId(), roleNames);
-
         log.info("Access token refreshed: userPublicId={}", user.getPublicId());
+        // Re-checks the user may still act in the session's institution.
+        return sessionTokenService.refresh(storedToken, rawRefreshToken);
+    }
 
-        return AuthResponse.builder()
-                .userPublicId(user.getPublicId())
-                .accessToken(newAccessToken)
-                .refreshToken(rawRefreshToken) // same refresh token — not rotated for this pass
-                .roles(roleNames)
-                .build();
+    /**
+     * Moves the caller's session into another institution: one they belong to,
+     * or — for a platform admin only — any institution (audited as PLATFORM_ACCESS).
+     */
+    @Transactional
+    public AuthResponse switchInstitution(UUID userPublicId, UUID institutionPublicId, String userAgent, String ipAddress) {
+        User user = userRepository.findByPublicId(userPublicId)
+                .filter(u -> !u.isDeleted() && u.isActive())
+                .orElseThrow(() -> new BadCredentialsException("Please sign in again"));
+        Institution institution = institutionRepository.findByPublicId(institutionPublicId)
+                .orElseThrow(() -> new ResourceNotFoundException("Institution not found"));
+        if (!user.isMemberOf(institution.getId()) && !user.isPlatformAdmin()) {
+            throw new ResourceNotFoundException("Institution not found");
+        }
+        AuthResponse response = sessionTokenService.issue(user, institution, userAgent, ipAddress);
+        if (!user.isMemberOf(institution.getId())) {
+            auditLogService.log(user.getPublicId(), "[PLATFORM_ADMIN]", AuditAction.PLATFORM_ACCESS,
+                    "Institution", institution.getPublicId());
+            log.warn("Platform admin entered institution: userPublicId={}, institutionPublicId={}",
+                    user.getPublicId(), institution.getPublicId());
+        }
+        return response;
     }
     // ─────────────────────────────────────────────────────────────────────
     // PASSWORD & EMAIL MANAGEMENT
@@ -272,9 +279,6 @@ public class AuthService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + targetUserPublicId));
         User actor = userRepository.findByPublicId(actorPublicId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + actorPublicId));
-        if (!user.getInstitution().getId().equals(actor.getInstitution().getId())) {
-            throw new ResourceNotFoundException("User not found: " + targetUserPublicId);
-        }
 
         String oldEmail = user.getEmail();
         user.setEmail(request.getNewEmail());
@@ -349,7 +353,7 @@ public class AuthService {
         log.info("Email verified: userPublicId={}", user.getPublicId());
     }
 
-    private void sendEmailVerification(User user) {
+    public void sendEmailVerification(User user) {
         String rawToken = jwtService.generateRefreshTokenRaw();
 
         EmailVerificationToken verification = new EmailVerificationToken();
@@ -361,154 +365,6 @@ public class AuthService {
         String verifyLink = frontendUrl + "/verify-email?token=" + rawToken;
         emailService.send(user.getEmail(), "Verify your Cadence email",
                 "Click here to verify your email (valid 24 hours): " + verifyLink);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // STAFF INVITE (FACILITATOR / ADMIN — SUPER_ADMIN or scoped ADMIN)
-    // ─────────────────────────────────────────────────────────────────────
-
-    @Transactional
-    public void createStaffInvite(CreateStaffInviteRequest request, Institution institution, User caller) {
-        if (request.getTargetRole() != Role.FACILITATOR && request.getTargetRole() != Role.ADMIN) {
-            throw new IllegalArgumentException("Staff invites can only target FACILITATOR or ADMIN");
-        }
-
-        if (!caller.hasRole(Role.SUPER_ADMIN)) {
-            enforceAdminInviteConstraints(request, caller);
-        }
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new IllegalArgumentException("Email already registered: " + request.getEmail());
-        }
-
-        User user = new User();
-        user.setInstitution(institution);
-        user.setFirstName(request.getFirstName());
-        user.setMiddleName(request.getMiddleName());
-        user.setLastName(request.getLastName());
-        user.setEmail(request.getEmail());
-        user.setPhoneNumber(request.getPhoneNumber());
-        user.setRoles(Set.of(request.getTargetRole()));
-        user.setAccountPending(true);
-        user.setEmailVerified(true); // clicking the invite link IS the verification
-        User saved = userRepository.save(user);
-
-        String rawToken = UUID.randomUUID().toString();
-
-        StaffInviteToken invite = new StaffInviteToken();
-        invite.setUser(saved);
-        invite.setTokenHash(jwtService.hashToken(rawToken));
-        invite.setExpiresAt(LocalDateTime.now().plusDays(7));
-
-        if (request.getTargetRole() == Role.ADMIN) {
-            if (request.getAdminRolePublicId() == null) {
-                throw new IllegalArgumentException("adminRolePublicId is required when targetRole is ADMIN");
-            }
-            AdminRole adminRole = adminRoleRepository.findByPublicId(UUID.fromString(request.getAdminRolePublicId()))
-                    .orElseThrow(() -> new ResourceNotFoundException("AdminRole not found"));
-            invite.setAdminRole(adminRole);
-
-            if (request.getCohortPublicId() != null) {
-                invite.setCohort(cohortService.findEntityByPublicId(UUID.fromString(request.getCohortPublicId())));
-            }
-        }
-
-        staffInviteTokenRepository.save(invite);
-
-        String activationLink = frontendUrl + "/accept-invite?token=" + rawToken;
-        emailService.send(saved.getEmail(), "You've been invited to Cadence",
-                "Set your password to activate your account (valid 7 days): " + activationLink);
-
-        log.info("Staff invite created: userPublicId={}, targetRole={}", saved.getPublicId(), request.getTargetRole());
-    }
-
-    /**
-     * Enforces subset-permission and cohort-scope rules when a non-SUPER_ADMIN
-     * ADMIN caller is creating a staff invite.
-     *
-     * Rules:
-     *  - Inviting FACILITATOR: no extra permission check.
-     *  - Inviting ADMIN: the target AdminRole's permission set must be a strict
-     *    subset of the union of permissions from all of the caller's active
-     *    role-assignments whose AdminRole is also active.  If the target invite
-     *    specifies a cohort, the caller must hold at least one active assignment
-     *    that covers that cohort (assignment.cohort == null means institution-wide).
-     */
-    private void enforceAdminInviteConstraints(CreateStaffInviteRequest request, User caller) {
-        if (request.getTargetRole() == Role.FACILITATOR) {
-            // ADMIN can freely invite facilitators — no further check.
-            return;
-        }
-
-        // --- target is ADMIN: load and validate caller's active assignments ---
-        List<UserAdminRoleAssignment> callerAssignments = userAdminRoleAssignmentRepository
-                .findByUserAndIsActiveTrue(caller)
-                .stream()
-                .filter(a -> a.getAdminRole().isActive())
-                .collect(Collectors.toList());
-
-        if (callerAssignments.isEmpty()) {
-            throw new org.springframework.security.access.AccessDeniedException(
-                    "Caller has no active admin role assignments");
-        }
-
-        // Union permissions across all valid assignments.
-        Set<com.dayo.capstone.cadence.common.enums.Permission> callerPermissions = callerAssignments.stream()
-                .flatMap(a -> a.getAdminRole().getPermissions().stream())
-                .collect(Collectors.toSet());
-
-        // Load the target AdminRole.
-        AdminRole targetRole = adminRoleRepository
-                .findByPublicId(UUID.fromString(request.getAdminRolePublicId()))
-                .orElseThrow(() -> new ResourceNotFoundException("AdminRole not found"));
-
-        // Subset check: every permission the target role has must also be in caller's union.
-        if (!callerPermissions.containsAll(targetRole.getPermissions())) {
-            Set<com.dayo.capstone.cadence.common.enums.Permission> excess = new java.util.HashSet<>(targetRole.getPermissions());
-            excess.removeAll(callerPermissions);
-            throw new org.springframework.security.access.AccessDeniedException(
-                    "Cannot grant permissions not held by caller: " + excess);
-        }
-
-        // Cohort-scope check: if the invite targets a specific cohort, the caller
-        // must have at least one assignment covering that cohort or the whole institution.
-        if (request.getCohortPublicId() != null) {
-            UUID targetCohortId = UUID.fromString(request.getCohortPublicId());
-            boolean callerCoversScope = callerAssignments.stream()
-                    .anyMatch(a -> a.getCohort() == null
-                            || a.getCohort().getPublicId().equals(targetCohortId));
-            if (!callerCoversScope) {
-                throw new org.springframework.security.access.AccessDeniedException(
-                        "Caller's assignments do not cover the requested cohort scope");
-            }
-        }
-    }
-
-    @Transactional
-    public void acceptStaffInvite(AcceptStaffInviteRequest request) {
-        String hash = jwtService.hashToken(request.getToken());
-
-        StaffInviteToken invite = staffInviteTokenRepository.findByTokenHash(hash)
-                .filter(StaffInviteToken::isValid)
-                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired invite token"));
-
-        User user = invite.getUser();
-        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
-        user.setAccountPending(false);
-        userRepository.save(user);
-
-        if (invite.getAdminRole() != null) {
-            UserAdminRoleAssignment assignment = new UserAdminRoleAssignment();
-            assignment.setUser(user);
-            assignment.setAdminRole(invite.getAdminRole());
-            assignment.setCohort(invite.getCohort());
-            assignment.setAssignedAt(LocalDateTime.now());
-            userAdminRoleAssignmentRepository.save(assignment);
-        }
-
-        invite.setUsed(true);
-        staffInviteTokenRepository.save(invite);
-
-        log.info("Staff invite accepted, account activated: userPublicId={}", user.getPublicId());
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -671,36 +527,4 @@ public class AuthService {
         return String.format("%06d", code);
     }
 
-    private AuthResponse issueTokens(User user, String userAgent, String ipAddress) {
-        Set<String> roleNames = user.getRoles().stream().map(Role::name).collect(Collectors.toSet());
-
-        // Revoke any existing active session from this same browser/device before
-        // issuing a new one — prevents unbounded accumulation of "Active" devices
-        // every time the same browser logs in again.
-        refreshTokenRepository.findByUserAndUserAgentAndRevokedFalse(user, userAgent)
-                .forEach(existing -> {
-                    existing.setRevoked(true);
-                    existing.setRevokedAt(LocalDateTime.now());
-                    refreshTokenRepository.save(existing);
-                });
-
-        String accessToken = jwtService.generateAccessToken(user.getPublicId(), roleNames);
-        String rawRefreshToken = jwtService.generateRefreshTokenRaw();
-
-        RefreshToken refreshToken = new RefreshToken();
-        refreshToken.setUser(user);
-        refreshToken.setTokenHash(jwtService.hashToken(rawRefreshToken));
-        refreshToken.setExpiresAt(LocalDateTime.now().plusSeconds(jwtProperties.getRefreshTokenExpiryMs() / 1000));
-        refreshToken.setUserAgent(userAgent);
-        refreshToken.setIpAddress(ipAddress);
-        refreshToken.setLastUsedAt(LocalDateTime.now());
-        refreshTokenRepository.save(refreshToken);
-
-        return AuthResponse.builder()
-                .userPublicId(user.getPublicId())
-                .accessToken(accessToken)
-                .refreshToken(rawRefreshToken)
-                .roles(roleNames)
-                .build();
-    }
 }

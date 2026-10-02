@@ -59,7 +59,7 @@ public class CohortEnrollmentService {
         if (!student.hasRole(Role.STUDENT)) {
             throw new IllegalArgumentException("Only student accounts can be enrolled in a cohort");
         }
-        if (!student.getInstitution().getId().equals(target.getInstitution().getId())) {
+        if (!student.isMemberOf(target.getInstitution().getId())) {
             throw new IllegalArgumentException("Student and cohort belong to different institutions");
         }
 

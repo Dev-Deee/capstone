@@ -59,8 +59,14 @@ public class SecurityConfig {
                                 "/api/auth/**",
                                 "/.well-known/jwks.json",
                                 "/api/sessions/qr/**",
-                                "/api/resumption-sessions/qr/**"
+                                "/api/resumption-sessions/qr/**",
+                                // Self-serve institution sign-up (multi-tenant onboarding)
+                                "/api/institutions/signup",
+                                "/api/institutions/slug-availability"
                         ).permitAll()
+                        // Invite preview is public (the token is the secret); accepting
+                        // as an existing account (POST /api/invites/accept) is not.
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/invites/*").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

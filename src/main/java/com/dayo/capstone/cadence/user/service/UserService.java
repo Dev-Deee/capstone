@@ -10,7 +10,12 @@ import com.dayo.capstone.cadence.cohort.repository.FacilitatorCohortRepository;
 import com.dayo.capstone.cadence.common.enums.Permission;
 import com.dayo.capstone.cadence.common.service.FileStorageService;
 import com.dayo.capstone.cadence.user.enums.Role;
+import com.dayo.capstone.cadence.common.exception.ForbiddenException;
 import com.dayo.capstone.cadence.common.exception.ResourceNotFoundException;
+import com.dayo.capstone.cadence.common.tenant.TenantContext;
+import com.dayo.capstone.cadence.institution.model.Membership;
+import com.dayo.capstone.cadence.institution.repository.MembershipRepository;
+import com.dayo.capstone.cadence.institution.service.MembershipService;
 import com.dayo.capstone.cadence.institution.model.Institution;
 import com.dayo.capstone.cadence.institution.service.InstitutionService;
 import com.dayo.capstone.cadence.security.repository.RefreshTokenRepository;
@@ -44,6 +49,8 @@ public class UserService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final AuditLogService auditLogService;
     private final AdminPermissionService adminPermissionService;
+    private final MembershipRepository membershipRepository;
+    private final MembershipService membershipService;
     private final FacilitatorCohortRepository facilitatorCohortRepository;
 
     @Transactional
@@ -69,10 +76,11 @@ public class UserService {
         return toResponse(findEntityByPublicId(publicId));
     }
 
-    // Scoped to the caller's institution — the directory never crosses tenants.
+    // The members of the caller's institution — the directory never crosses tenants.
     @Transactional(readOnly = true)
     public List<UserResponse> getAll(Institution institution) {
-        return userRepository.findByInstitutionAndIsDeletedFalseOrderByCreatedAtDesc(institution).stream()
+        return membershipRepository.findMembers(institution).stream()
+                .map(Membership::getUser)
                 .map(this::toResponse)
                 .toList();
     }
@@ -98,17 +106,31 @@ public class UserService {
     //   ADMIN with MANAGE_USERS   — students and facilitators only (never admins/super admins)
     //   FACILITATOR               — activate/deactivate only, students in cohorts they teach
     // Every method resolves the target inside the caller's institution and writes
-    // an AuditLog entry. Deactivate/delete refuse to act on the caller themselves
-    // or on SUPER_ADMIN accounts, so nobody can lock the institution out.
+    // an AuditLog entry. Multi-tenant: suspending and removing act on the
+    // target's membership HERE only; their account and other institutions are
+    // untouched. MembershipService refuses anything that would leave the
+    // institution without an active SUPER_ADMIN.
 
-    // Edit, email change and delete — admin tiers only.
-    public void requireCanEdit(User caller, User target) {
+    // Remove/suspend-level management — admin tiers only.
+    public void requireCanManage(User caller, User target) {
         if (caller.hasRole(Role.SUPER_ADMIN)) return;
         if (isUserAdmin(caller)) {
             requireNotStaffAdmin(target);
             return;
         }
         throw new AccessDeniedException("You don't have permission to manage this user");
+    }
+
+    // Editing someone's profile (name, phone, email) changes it everywhere they
+    // belong, so an institution may only do it for people who belong to it alone.
+    public void requireCanEdit(User caller, User target) {
+        requireCanManage(caller, target);
+        Long here = TenantContext.institutionId();
+        boolean elsewhere = target.getMemberships().stream()
+                .anyMatch(m -> !m.getInstitution().getId().equals(here));
+        if (elsewhere) {
+            throw new ForbiddenException("This person also belongs to another institution, so only they can change their profile.");
+        }
     }
 
     // Activate/deactivate — admin tiers, plus a facilitator for their own students.
@@ -170,66 +192,64 @@ public class UserService {
         return toResponse(user);
     }
 
+    // Suspends or restores the target's access to THIS institution only.
     @Transactional
     public UserResponse setActive(UUID targetPublicId, boolean active, User caller) {
         User user = findInCallerInstitution(targetPublicId, caller);
         requireCanToggle(caller, user);
         if (!active) {
-            guardAgainstLockout(user, caller, "deactivate");
+            guardAgainstSelf(user, caller, "suspend");
         }
-        if (user.isActive() == active) {
-            return toResponse(user);
-        }
-
-        user.setActive(active);
-        userRepository.save(user);
-        if (!active) {
-            refreshTokenRepository.revokeAllForUser(user, LocalDateTime.now());
-        }
-
-        auditLogService.log(caller.getPublicId(), caller.getRoles().toString(), AuditAction.UPDATE,
-                "User", user.getPublicId(),
-                "{\"active\":" + !active + "}", "{\"active\":" + active + "}");
-        log.info("User {} by admin: targetPublicId={}, by={}",
-                active ? "activated" : "deactivated", targetPublicId, caller.getPublicId());
+        membershipService.setActive(user, currentInstitution(user), active, caller);
+        log.info("Membership {} by admin: targetPublicId={}, by={}",
+                active ? "restored" : "suspended", targetPublicId, caller.getPublicId());
         return toResponse(user);
     }
 
-    // Soft delete only (PRD 18.1): anonymize PII, sign out everywhere, and end
-    // any active cohort enrollment so the user drops out of live statistics.
-    // Historical attendance/submissions/audit rows are kept.
+    // Removes the target from THIS institution. Their account, history and other
+    // institutions are untouched (full account erasure is the user's own action).
     @Transactional
-    public void softDeleteByAdmin(UUID targetPublicId, User caller) {
+    public void removeFromInstitution(UUID targetPublicId, User caller) {
         User user = findInCallerInstitution(targetPublicId, caller);
-        requireCanEdit(caller, user);
-        guardAgainstLockout(user, caller, "delete");
-
-        refreshTokenRepository.revokeAllForUser(user, LocalDateTime.now());
-        cohortEnrollmentRepository.findByStudentAndIsActiveTrue(user).ifPresent(e -> {
-            e.setActive(false);
-            cohortEnrollmentRepository.save(e);
-        });
-        softDeleteAndAnonymize(targetPublicId);
-
-        auditLogService.log(caller.getPublicId(), caller.getRoles().toString(), AuditAction.DELETE,
-                "User", user.getPublicId());
-        log.info("User soft-deleted by admin: targetPublicId={}, by={}", targetPublicId, caller.getPublicId());
+        requireCanManage(caller, user);
+        guardAgainstSelf(user, caller, "remove");
+        membershipService.remove(user, currentInstitution(user), caller);
     }
 
+    // Owner-only (controller): replace someone's roles in this institution.
+    @Transactional
+    public UserResponse updateRoles(UUID targetPublicId, Set<Role> roles, User caller) {
+        User user = findInCallerInstitution(targetPublicId, caller);
+        membershipService.updateRoles(user, currentInstitution(user), roles, caller);
+        return toResponse(user);
+    }
+
+    // The caller leaves the institution they're working in.
+    @Transactional
+    public void leaveCurrentInstitution(User caller) {
+        membershipService.remove(caller, currentInstitution(caller), caller);
+    }
+
+    private static Institution currentInstitution(User member) {
+        return member.membershipIn(TenantContext.institutionId())
+                .map(Membership::getInstitution)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    }
+
+    // The target must be a member of the institution the request acts in;
+    // anyone else is "not found" (no hint that they exist in another tenant).
     public User findInCallerInstitution(UUID targetPublicId, User caller) {
         User user = findEntityByPublicId(targetPublicId);
-        if (!user.getInstitution().getId().equals(caller.getInstitution().getId())) {
+        Long here = TenantContext.institutionId();
+        if (here == null || !user.isMemberOf(here)) {
             throw new ResourceNotFoundException("User not found: " + targetPublicId);
         }
         return user;
     }
 
-    private static void guardAgainstLockout(User target, User caller, String action) {
+    private static void guardAgainstSelf(User target, User caller, String action) {
         if (target.getId().equals(caller.getId())) {
-            throw new IllegalArgumentException("You can't " + action + " your own account");
-        }
-        if (target.hasRole(Role.SUPER_ADMIN)) {
-            throw new IllegalArgumentException("Super admin accounts can't be " + action + "d here");
+            throw new IllegalArgumentException("You can't " + action + " yourself here. Use \"Leave institution\" instead.");
         }
     }
 
@@ -249,9 +269,10 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public List<UserResponse> getFacilitators(Institution institution) {
-        return userRepository.findByInstitutionAndIsDeletedFalseOrderByCreatedAtDesc(institution).stream()
+        return membershipRepository.findMembers(institution).stream()
+                .filter(m -> m.isActive() && m.hasRole(Role.FACILITATOR))
+                .map(Membership::getUser)
                 .filter(User::isActive)
-                .filter(u -> u.hasRole(Role.FACILITATOR))
                 .map(this::toResponse)
                 .toList();
     }
@@ -271,6 +292,10 @@ public class UserService {
     @Transactional
     public void softDeleteAndAnonymize(UUID publicId) {
         User user = findEntityByPublicId(publicId);
+        if (membershipService.isSoleOwnerSomewhere(user)) {
+            throw new IllegalArgumentException("You're the only super admin of an institution. "
+                    + "Make someone else a super admin there before deleting your account.");
+        }
         user.setFirstName("Deleted");
         user.setLastName("User");
         user.setMiddleName(null);
@@ -305,7 +330,7 @@ public class UserService {
 
         return UserResponse.builder()
                 .publicId(user.getPublicId())
-                .institutionPublicId(user.getInstitution().getPublicId())
+                .institutionPublicId(TenantContext.institutionPublicId())
                 .firstName(user.getFirstName())
                 .middleName(user.getMiddleName())
                 .lastName(user.getLastName())
@@ -321,7 +346,8 @@ public class UserService {
                 .cohortPublicId(cohortPublicId)
                 .cohortName(cohortName)
                 .institutionStudentId(user.getInstitutionStudentId())
-                .active(user.isActive())
+                // Active here: the account is enabled AND their membership in this institution is.
+                .active(user.isActive() && user.membershipIn(TenantContext.institutionId()).map(Membership::isActive).orElse(true))
                 .accountPending(user.isAccountPending())
                 .build();
     }

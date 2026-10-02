@@ -39,8 +39,11 @@ public class AdminRoleController {
 
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     @PostMapping("/assign")
-    public ResponseEntity<Void> assign(@Valid @RequestBody AssignAdminRoleRequest request) {
-        adminRoleService.assign(request);
+    public ResponseEntity<Void> assign(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @Valid @RequestBody AssignAdminRoleRequest request
+    ) {
+        adminRoleService.assign(request, institutionService.findEntityByUserPublicId(principal.userPublicId()));
         return ResponseEntity.noContent().build();
     }
 

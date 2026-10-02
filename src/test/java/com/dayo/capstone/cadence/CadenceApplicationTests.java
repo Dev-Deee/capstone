@@ -1,13 +1,11 @@
 package com.dayo.capstone.cadence;
 
+import com.dayo.capstone.cadence.support.IntegrationTestBase;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class CadenceApplicationTests {
+class CadenceApplicationTests extends IntegrationTestBase {
 
     @Test
     void contextLoads() {
     }
-
 }

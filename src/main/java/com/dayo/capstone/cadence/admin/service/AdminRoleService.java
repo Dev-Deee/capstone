@@ -82,13 +82,19 @@ public class AdminRoleService {
     }
 
     @Transactional
-    public void assign(AssignAdminRoleRequest request) {
+    // Multi-tenant: the user must be a member of the caller's institution and the
+    // AdminRole and cohort must belong to it — a grant can never reach across tenants.
+    public void assign(AssignAdminRoleRequest request, Institution callerInstitution) {
         User user = userService.findEntityByPublicId(UUID.fromString(request.getUserPublicId()));
+        if (!user.isMemberOf(callerInstitution.getId())) {
+            throw new ResourceNotFoundException("User not found");
+        }
         AdminRole role = adminRoleRepository.findByPublicId(UUID.fromString(request.getAdminRolePublicId()))
+                .filter(r -> r.getInstitution().getId().equals(callerInstitution.getId()))
                 .orElseThrow(() -> new ResourceNotFoundException("AdminRole not found"));
 
         Cohort cohort = request.getCohortPublicId() != null
-                ? cohortService.findEntityByPublicId(UUID.fromString(request.getCohortPublicId()))
+                ? cohortService.findEntityByPublicIdScopedToInstitution(UUID.fromString(request.getCohortPublicId()), callerInstitution)
                 : null;
 
         UserAdminRoleAssignment assignment = new UserAdminRoleAssignment();

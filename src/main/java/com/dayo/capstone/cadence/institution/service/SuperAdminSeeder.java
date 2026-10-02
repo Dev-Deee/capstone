@@ -1,7 +1,9 @@
 package com.dayo.capstone.cadence.institution.service;
 
 import com.dayo.capstone.cadence.institution.model.Institution;
+import com.dayo.capstone.cadence.institution.model.Membership;
 import com.dayo.capstone.cadence.institution.repository.InstitutionRepository;
+import com.dayo.capstone.cadence.institution.repository.MembershipRepository;
 import com.dayo.capstone.cadence.user.enums.Role;
 import com.dayo.capstone.cadence.user.model.User;
 import com.dayo.capstone.cadence.user.repository.UserRepository;
@@ -12,10 +14,21 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.Set;
+import java.util.EnumSet;
 
+/**
+ * Local-development seed, from .env. Ensures — each step independently, so
+ * re-running is always a no-op once everything exists:
+ *   1. the seed institution (with a slug),
+ *   2. the seed user,
+ *   3. their SUPER_ADMIN membership in that institution (institution owner),
+ *   4. the platform-admin flag on that user (Cadence-wide oversight).
+ * 3 and 4 are independent grants: owning one institution and overseeing the
+ * platform are different powers that happen to be given to the same dev user.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -23,6 +36,7 @@ public class SuperAdminSeeder implements ApplicationRunner {
 
     private final InstitutionRepository institutionRepository;
     private final UserRepository userRepository;
+    private final MembershipRepository membershipRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Value("${app.seed.super-admin.email}")
@@ -34,42 +48,53 @@ public class SuperAdminSeeder implements ApplicationRunner {
     @Value("${app.seed.institution.name:Semicolon Africa}")
     private String institutionName;
 
+    @Value("${app.seed.super-admin.platform-admin:true}")
+    private boolean grantPlatformAdmin;
+
     @Override
+    @Transactional
     public void run(ApplicationArguments args) {
         Institution institution = institutionRepository.findByName(institutionName)
                 .orElseGet(this::seedInstitution);
 
-        boolean superAdminExists = userRepository.findByEmail(superAdminEmail).isPresent();
+        User user = userRepository.findByEmail(superAdminEmail).orElseGet(this::seedUser);
 
-        if (superAdminExists) {
-            log.info("SuperAdminSeeder: Super Admin already exists, skipping");
-            return;
+        if (!membershipRepository.existsByUserAndInstitution(user, institution)) {
+            membershipRepository.save(Membership.of(user, institution, EnumSet.of(Role.SUPER_ADMIN)));
+            log.info("SuperAdminSeeder: granted SUPER_ADMIN of '{}' to {}", institutionName, superAdminEmail);
         }
 
-        User superAdmin = new User();
-        superAdmin.setInstitution(institution);
-        superAdmin.setFirstName("Super");
-        superAdmin.setLastName("Admin");
-        superAdmin.setEmail(superAdminEmail);
-        superAdmin.setPhoneNumber("0000000000");
-        superAdmin.setPasswordHash(passwordEncoder.encode(superAdminPassword));
-        superAdmin.setRoles(Set.of(Role.SUPER_ADMIN));
-        superAdmin.setConsentGiven(true);
-        superAdmin.setConsentTimestamp(LocalDateTime.now());
-        superAdmin.setConsentVersion("v1");
-        superAdmin.setAccountPending(false);
-        superAdmin.setEmailVerified(true);
-
-        userRepository.save(superAdmin);
-        log.info("SuperAdminSeeder: seeded Super Admin with email={}", superAdminEmail);
+        if (grantPlatformAdmin && !user.isPlatformAdmin()) {
+            user.setPlatformAdmin(true);
+            userRepository.save(user);
+            log.info("SuperAdminSeeder: granted platform admin to {}", superAdminEmail);
+        }
     }
 
     private Institution seedInstitution() {
         Institution institution = new Institution();
         institution.setName(institutionName);
+        institution.setSlug(InstitutionOnboardingService.slugify(institutionName));
         institution.setAddress("Lagos, Nigeria");
         Institution saved = institutionRepository.save(institution);
-        log.info("SuperAdminSeeder: seeded Institution '{}'", institutionName);
+        log.info("SuperAdminSeeder: seeded Institution '{}' ({})", institutionName, saved.getSlug());
+        return saved;
+    }
+
+    private User seedUser() {
+        User user = new User();
+        user.setFirstName("Super");
+        user.setLastName("Admin");
+        user.setEmail(superAdminEmail);
+        user.setPhoneNumber("0000000000");
+        user.setPasswordHash(passwordEncoder.encode(superAdminPassword));
+        user.setConsentGiven(true);
+        user.setConsentTimestamp(LocalDateTime.now());
+        user.setConsentVersion("v1");
+        user.setAccountPending(false);
+        user.setEmailVerified(true);
+        User saved = userRepository.save(user);
+        log.info("SuperAdminSeeder: seeded user {}", superAdminEmail);
         return saved;
     }
 }

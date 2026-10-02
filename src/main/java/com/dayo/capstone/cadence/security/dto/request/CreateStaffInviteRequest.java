@@ -10,25 +10,19 @@ import lombok.Setter;
 @Getter
 @Setter
 public class CreateStaffInviteRequest {
-
-    @NotBlank(message = "First name is required")
     private String firstName;
 
     private String middleName;
-
-    @NotBlank(message = "Last name is required")
     private String lastName;
 
     @NotBlank(message = "Email is required")
     @Email(message = "Email must be valid")
     private String email;
-
-    @NotBlank(message = "Phone number is required")
     private String phoneNumber;
 
     @NotNull(message = "Target role is required")
-    private Role targetRole; // FACILITATOR or ADMIN only — enforced in service
+    private Role targetRole; // STUDENT, FACILITATOR, ADMIN or SUPER_ADMIN — rules in InviteService
 
     private String adminRolePublicId; // required if targetRole = ADMIN
-    private String cohortPublicId;    // optional — scope for the AdminRole grant
+    private String cohortPublicId;    // optional — ADMIN: scope of the AdminRole grant; STUDENT: cohort to enroll in
 }
