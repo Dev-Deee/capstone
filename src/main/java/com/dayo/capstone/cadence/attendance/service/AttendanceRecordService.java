@@ -3,6 +3,8 @@ package com.dayo.capstone.cadence.attendance.service;
 import com.dayo.capstone.cadence.attendance.dto.request.ManualAttendanceOverrideRequest;
 import com.dayo.capstone.cadence.attendance.dto.request.MarkAttendanceRequest;
 import com.dayo.capstone.cadence.attendance.dto.response.AttendanceRecordResponse;
+import com.dayo.capstone.cadence.attendance.dto.response.SessionAttendanceHistoryEntry;
+import com.dayo.capstone.cadence.attendance.repository.SessionRepository;
 import com.dayo.capstone.cadence.attendance.enums.AttendanceStatus;
 import com.dayo.capstone.cadence.attendance.enums.VerificationMethod;
 import com.dayo.capstone.cadence.attendance.model.AttendanceRecord;
@@ -26,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 @Slf4j
@@ -35,6 +39,7 @@ public class AttendanceRecordService {
 
     private final AttendanceRecordRepository attendanceRecordRepository;
     private final SessionService sessionService;
+    private final SessionRepository sessionRepository;
     private final TotpService totpService;
     private final CohortEnrollmentRepository cohortEnrollmentRepository;
     private final UserService userService;
@@ -126,6 +131,37 @@ public class AttendanceRecordService {
                 sessionPublicId, studentPublicId, saved.getStatus(), caller.getPublicId());
 
         return toResponse(saved);
+    }
+
+    // The student's own class-session history: the facilitator roster's left join
+    // (sessions × this student's records) for one student instead of a whole cohort.
+    // Sessions before enrollment are excluded, matching the resumption history.
+    @Transactional(readOnly = true)
+    public List<SessionAttendanceHistoryEntry> getSessionHistory(User student) {
+        CohortEnrollment enrollment = cohortEnrollmentRepository
+                .findByStudentAndIsActiveTrue(student)
+                .orElseThrow(() -> new IllegalArgumentException("You are not enrolled in any active cohort"));
+        Cohort cohort = enrollment.getCohort();
+
+        Map<Long, AttendanceRecord> bySessionId = attendanceRecordRepository
+                .findByStudentAndSession_Cohort(student, cohort).stream()
+                .collect(Collectors.toMap(r -> r.getSession().getId(), r -> r));
+
+        return sessionRepository.findByCohortSince(cohort, enrollment.getEnrolledAt().toLocalDate().atStartOfDay())
+                .stream()
+                .map(s -> {
+                    AttendanceRecord record = bySessionId.get(s.getId());
+                    String status = record != null ? record.getStatus().name()
+                            : s.isCurrentlyOpen() ? "OPEN" : "ABSENT";
+                    return SessionAttendanceHistoryEntry.builder()
+                            .sessionPublicId(s.getPublicId())
+                            .date(s.getCreatedAt().toLocalDate())
+                            .subjectName(s.getSubject().getName())
+                            .status(status)
+                            .markedAt(record != null ? record.getSubmittedAt() : null)
+                            .build();
+                })
+                .toList();
     }
 
     private AttendanceRecordResponse toResponse(AttendanceRecord record) {
