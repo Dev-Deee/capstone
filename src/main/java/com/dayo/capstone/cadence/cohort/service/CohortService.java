@@ -41,9 +41,15 @@ public class CohortService {
         return toResponse(findEntityByPublicId(publicId));
     }
 
+    // Scoped to the caller's institution — Cadence is multi-tenant.
     @Transactional(readOnly = true)
-    public List<CohortResponse> getAll() {
-        return cohortRepository.findAll().stream().map(this::toResponse).toList();
+    public List<CohortResponse> getAll(Institution callerInstitution) {
+        return cohortRepository.findByInstitution(callerInstitution).stream().map(this::toResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public CohortResponse getByPublicIdScopedToInstitution(UUID publicId, Institution callerInstitution) {
+        return toResponse(findEntityByPublicIdScopedToInstitution(publicId, callerInstitution));
     }
 
     @Transactional(readOnly = true)

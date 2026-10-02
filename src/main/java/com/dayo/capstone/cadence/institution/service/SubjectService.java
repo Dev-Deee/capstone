@@ -36,8 +36,9 @@ public class SubjectService {
     }
 
     @Transactional(readOnly = true)
-    public List<SubjectResponse> getAll() {
-        return subjectRepository.findAll().stream().map(this::toResponse).toList();
+    // Scoped to the caller's institution — Cadence is multi-tenant.
+    public List<SubjectResponse> getAll(Institution callerInstitution) {
+        return subjectRepository.findByInstitution(callerInstitution).stream().map(this::toResponse).toList();
     }
 
     // Public — needed by FacilitatorCohortService for cross-module lookup,

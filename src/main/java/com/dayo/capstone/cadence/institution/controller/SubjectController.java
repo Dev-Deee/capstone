@@ -67,7 +67,8 @@ public class SubjectController {
     }
 
     @GetMapping
-    public ResponseEntity<List<SubjectResponse>> getAll() {
-        return ResponseEntity.ok(subjectService.getAll());
+    public ResponseEntity<List<SubjectResponse>> getAll(@AuthenticationPrincipal CadencePrincipal principal) {
+        Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(subjectService.getAll(institution));
     }
 }

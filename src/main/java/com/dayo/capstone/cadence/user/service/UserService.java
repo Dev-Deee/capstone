@@ -248,9 +248,9 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    public List<UserResponse> getFacilitators() {
-        return userRepository.findAll().stream()
-                .filter(u -> !u.isDeleted() && u.isActive())
+    public List<UserResponse> getFacilitators(Institution institution) {
+        return userRepository.findByInstitutionAndIsDeletedFalseOrderByCreatedAtDesc(institution).stream()
+                .filter(User::isActive)
                 .filter(u -> u.hasRole(Role.FACILITATOR))
                 .map(this::toResponse)
                 .toList();

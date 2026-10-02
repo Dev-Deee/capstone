@@ -156,13 +156,19 @@ public class CohortController {
         return ResponseEntity.ok(cohortService.update(publicId, request, callerInstitution));
     }
 
+    // Both reads are limited to the caller's institution (multi-tenant).
     @GetMapping("/{publicId}")
-    public ResponseEntity<CohortResponse> getOne(@PathVariable UUID publicId) {
-        return ResponseEntity.ok(cohortService.getByPublicId(publicId));
+    public ResponseEntity<CohortResponse> getOne(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId
+    ) {
+        Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(cohortService.getByPublicIdScopedToInstitution(publicId, institution));
     }
 
     @GetMapping
-    public ResponseEntity<List<CohortResponse>> getAll() {
-        return ResponseEntity.ok(cohortService.getAll());
+    public ResponseEntity<List<CohortResponse>> getAll(@AuthenticationPrincipal CadencePrincipal principal) {
+        Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(cohortService.getAll(institution));
     }
 }
