@@ -131,6 +131,19 @@ public class InstitutionAnalyticsService {
                 .build();
     }
 
+    /**
+     * The student's active cohort, only if it belongs to {@code institution}.
+     * A student's active enrolment is still one per account across institutions,
+     * so without this check an admin could read another institution's records.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Cohort> activeCohortIn(com.dayo.capstone.cadence.user.model.User student, Institution institution) {
+        return enrollmentRepository.findByStudentAndIsActiveTrue(student)
+                .map(CohortEnrollment::getCohort)
+                .filter(c -> c.getInstitution().getId().equals(institution.getId()))
+                .map(c -> { c.getName(); return c; });
+    }
+
     private static Set<Long> enrolledBy(List<CohortEnrollment> enrollments, LocalDateTime moment) {
         Set<Long> ids = new HashSet<>();
         for (CohortEnrollment e : enrollments) {

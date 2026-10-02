@@ -42,7 +42,7 @@ class InstitutionAnalyticsTest extends IntegrationTestBase {
 
     Institution inst;
     Cohort cohort1, cohort2;
-    User owner;
+    User owner, a;
 
     @BeforeEach
     void setUp() {
@@ -51,7 +51,8 @@ class InstitutionAnalyticsTest extends IntegrationTestBase {
         member(owner, inst, Role.SUPER_ADMIN);
         cohort1 = cohort(inst);
         cohort2 = cohort(inst);
-        User a = student(cohort1), b = student(cohort1);
+        a = student(cohort1);
+        User b = student(cohort1);
         student(cohort2);
         resumptionSession(cohort2);
 
@@ -142,5 +143,42 @@ class InstitutionAnalyticsTest extends IntegrationTestBase {
         grant(admin, inst, Permission.MANAGE_COHORTS);
         assertThat(get("/api/admin/analytics", login(admin)).status()).isEqualTo(403);
         assertThat(get("/api/admin/analytics?days=3", login(owner)).status()).isEqualTo(400);
+    }
+
+    @Test
+    void oneStudentsHistoryFollowsTheSameRule() {
+        Resp mine = get("/api/admin/analytics/students/" + a.getPublicId(), login(owner));
+        assertThat(mine.status()).isEqualTo(200);
+        assertThat(mine.text("cohortName")).isEqualTo(cohort1.getName());
+        assertThat(mine.body().get("resumption").findValuesAsText("status")).contains("PRESENT", "LATE");
+        assertThat(mine.body().get("classes").findValuesAsText("status")).contains("PRESENT");
+
+        User analyst = user("scoped");
+        member(analyst, inst, Role.ADMIN);
+        grant(analyst, inst, cohort2, Permission.VIEW_INSTITUTION_ANALYTICS);
+        assertThat(get("/api/admin/analytics/students/" + a.getPublicId(), login(analyst)).status()).isEqualTo(403);
+    }
+
+    @Test
+    void studentsElsewhereAreInvisible() {
+        Institution other = institution("Elsewhere");
+        Cohort otherCohort = cohort(other);
+        User outsider = user("outsider");
+        member(outsider, other, Role.STUDENT);
+        assertThat(get("/api/admin/analytics/students/" + outsider.getPublicId(), login(owner)).status()).isEqualTo(404);
+
+        // A member here whose active cohort belongs to another institution: no records leak.
+        User both = user("both");
+        member(both, inst, Role.STUDENT);
+        member(both, other, Role.STUDENT);
+        CohortEnrollment e = new CohortEnrollment();
+        e.setStudent(both);
+        e.setCohort(otherCohort);
+        e.setEnrolledAt(LocalDateTime.now().minusDays(3));
+        enrollmentRepository.save(e);
+        Resp r = get("/api/admin/analytics/students/" + both.getPublicId(), login(owner));
+        assertThat(r.status()).isEqualTo(200);
+        assertThat(r.text("cohortName")).isNull();
+        assertThat(r.body().get("resumption").size()).isZero();
     }
 }
