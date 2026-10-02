@@ -5,6 +5,7 @@ import com.dayo.capstone.cadence.attendance.dto.request.ManualAttendanceOverride
 import com.dayo.capstone.cadence.attendance.dto.request.MarkResumptionAttendanceRequest;
 import com.dayo.capstone.cadence.attendance.dto.response.AttendanceHistoryEntry;
 import com.dayo.capstone.cadence.attendance.dto.response.AttendanceSummaryResponse;
+import com.dayo.capstone.cadence.attendance.dto.response.BiometricChallenge;
 import com.dayo.capstone.cadence.attendance.dto.response.CohortAttendanceOverviewEntry;
 import com.dayo.capstone.cadence.attendance.dto.response.ResumptionAttendanceRecordResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.StudentAttendanceSummaryEntry;
@@ -21,7 +22,9 @@ import com.dayo.capstone.cadence.cohort.model.CohortEnrollment;
 import com.dayo.capstone.cadence.cohort.repository.CohortEnrollmentRepository;
 import com.dayo.capstone.cadence.cohort.service.CohortService;
 import com.dayo.capstone.cadence.common.enums.Permission;
+import com.dayo.capstone.cadence.common.exception.ResourceNotFoundException;
 import com.dayo.capstone.cadence.institution.model.Institution;
+import com.dayo.capstone.cadence.security.dto.request.WebAuthnAuthenticationRequest;
 import com.dayo.capstone.cadence.user.enums.Role;
 import com.dayo.capstone.cadence.user.model.User;
 import com.dayo.capstone.cadence.user.service.UserService;
@@ -53,6 +56,7 @@ public class ResumptionAttendanceRecordService {
     private final UserService userService;
     private final AdminPermissionService adminPermissionService;
     private final AuditLogService auditLogService;
+    private final CheckInBiometricService checkInBiometricService;
 
     @Transactional
     public ResumptionAttendanceRecordResponse markAttendance(MarkResumptionAttendanceRequest request, User student) {
@@ -72,23 +76,67 @@ public class ResumptionAttendanceRecordService {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Resumption code is invalid or has expired"));
 
-        recordRepository.findByResumptionSessionAndStudent(session, student)
-                .ifPresent(existing -> {
-                    throw new IllegalArgumentException("Resumption attendance already marked for today");
-                });
+        var existing = recordRepository.findByResumptionSessionAndStudent(session, student);
+        if (existing.isPresent()) {
+            // Code accepted earlier, biometric step unfinished — re-entering the code resumes it.
+            if (existing.get().getEffectiveStatus() == AttendanceStatus.PENDING_BIOMETRIC) {
+                return toResponse(existing.get(), biometricChallenge(existing.get(), student));
+            }
+            throw new IllegalArgumentException("Resumption attendance already marked for today");
+        }
 
+        // PRD Section 6.12 — same rule as class attendance (AttendanceRecordService).
+        boolean biometric = checkInBiometricService.isRequiredFor(student);
         ResumptionAttendanceRecord record = new ResumptionAttendanceRecord();
         record.setResumptionSession(session);
         record.setStudent(student);
         record.setCheckedInAt(LocalDateTime.now());
-        record.setStatus(AttendanceStatus.PRESENT);
+        record.setStatus(biometric ? AttendanceStatus.PENDING_BIOMETRIC : AttendanceStatus.PRESENT);
         record.setVerificationMethod(VerificationMethod.CODE);
+        record.setWebAuthnVerified(biometric ? Boolean.FALSE : null);
 
         ResumptionAttendanceRecord saved = recordRepository.save(record);
-        log.info("Resumption attendance marked: sessionPublicId={}, studentPublicId={}",
-                session.getPublicId(), student.getPublicId());
+        log.info("Resumption attendance marked: sessionPublicId={}, studentPublicId={}, status={}",
+                session.getPublicId(), student.getPublicId(), saved.getStatus());
 
+        return toResponse(saved, biometric ? biometricChallenge(saved, student) : null);
+    }
+
+    @Transactional(readOnly = true)
+    public BiometricChallenge reissueBiometricChallenge(UUID recordPublicId, User student) {
+        return biometricChallenge(pendingRecord(recordPublicId, student), student);
+    }
+
+    @Transactional
+    public ResumptionAttendanceRecordResponse confirmBiometric(
+            UUID recordPublicId, WebAuthnAuthenticationRequest assertion, User student) {
+        ResumptionAttendanceRecord record = pendingRecord(recordPublicId, student);
+        checkInBiometricService.verify(challengeKey(record), student, assertion);
+        record.setStatus(AttendanceStatus.PRESENT);
+        record.setWebAuthnVerified(true);
+        ResumptionAttendanceRecord saved = recordRepository.save(record);
+        log.info("Resumption attendance biometric confirmed: sessionPublicId={}, studentPublicId={}",
+                record.getResumptionSession().getPublicId(), student.getPublicId());
         return toResponse(saved);
+    }
+
+    private ResumptionAttendanceRecord pendingRecord(UUID recordPublicId, User student) {
+        ResumptionAttendanceRecord record = recordRepository.findByPublicIdAndStudent(recordPublicId, student)
+                .orElseThrow(() -> new ResourceNotFoundException("Attendance record not found: " + recordPublicId));
+        if (record.getEffectiveStatus() != AttendanceStatus.PENDING_BIOMETRIC) {
+            throw new IllegalArgumentException("This check-in is not awaiting biometric confirmation");
+        }
+        ResumptionSession session = record.getResumptionSession();
+        checkInBiometricService.requireWithinGrace(session.isCurrentlyOpen(), session.getClosedAt(), session.getExpiresAt());
+        return record;
+    }
+
+    private BiometricChallenge biometricChallenge(ResumptionAttendanceRecord record, User student) {
+        return checkInBiometricService.challenge(challengeKey(record), student);
+    }
+
+    private static String challengeKey(ResumptionAttendanceRecord record) {
+        return "attendance:resumption:" + record.getPublicId();
     }
 
     @Transactional(readOnly = true)
@@ -214,6 +262,9 @@ public class ResumptionAttendanceRecordService {
             adminPermissionService.requirePermissionForCohort(
                     caller, Permission.MANAGE_RESUMPTION_CODES, session.getCohort());
         }
+        if (!request.getStatus().isOverrideOutcome()) {
+            throw new IllegalArgumentException("Status must be PRESENT, LATE or ABSENT");
+        }
 
         User student = userService.findEntityByPublicId(studentPublicId);
         cohortEnrollmentRepository.findByStudentAndCohort(student, session.getCohort())
@@ -247,12 +298,18 @@ public class ResumptionAttendanceRecordService {
     }
 
     private ResumptionAttendanceRecordResponse toResponse(ResumptionAttendanceRecord record) {
+        return toResponse(record, null);
+    }
+
+    private ResumptionAttendanceRecordResponse toResponse(ResumptionAttendanceRecord record, BiometricChallenge biometric) {
         return ResumptionAttendanceRecordResponse.builder()
                 .publicId(record.getPublicId())
                 .resumptionSessionPublicId(record.getResumptionSession().getPublicId())
                 .studentPublicId(record.getStudent().getPublicId())
                 .checkedInAt(record.getCheckedInAt())
                 .status(record.getEffectiveStatus().name())
+                .webAuthnVerified(record.getWebAuthnVerified())
+                .biometric(biometric)
                 .build();
     }
 }

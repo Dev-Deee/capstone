@@ -8,9 +8,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface AttendanceRecordRepository extends JpaRepository<AttendanceRecord, Long> {
     Optional<AttendanceRecord> findBySessionAndStudent(Session session, User student);
     List<AttendanceRecord> findBySession(Session session);
     List<AttendanceRecord> findByStudentAndSession_Cohort(User student, Cohort cohort);
+    Optional<AttendanceRecord> findByPublicIdAndStudent(UUID publicId, User student);
 }

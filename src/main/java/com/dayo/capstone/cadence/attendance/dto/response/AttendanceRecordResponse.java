@@ -13,5 +13,8 @@ public record AttendanceRecordResponse(
         UUID studentPublicId,
         AttendanceStatus status,
         VerificationMethod verificationMethod,
-        LocalDateTime submittedAt
+        LocalDateTime submittedAt,
+        Boolean webAuthnVerified,
+        // Present only while status is PENDING_BIOMETRIC.
+        BiometricChallenge biometric
 ) {}

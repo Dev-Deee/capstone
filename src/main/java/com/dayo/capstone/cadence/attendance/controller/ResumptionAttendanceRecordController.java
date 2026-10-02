@@ -5,7 +5,9 @@ import com.dayo.capstone.cadence.attendance.dto.response.AttendanceHistoryEntry;
 import com.dayo.capstone.cadence.attendance.dto.response.AttendanceSummaryResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.ResumptionAttendanceRecordResponse;
 import com.dayo.capstone.cadence.attendance.service.ResumptionAttendanceRecordService;
+import com.dayo.capstone.cadence.attendance.dto.response.BiometricChallenge;
 import com.dayo.capstone.cadence.security.CadencePrincipal;
+import com.dayo.capstone.cadence.security.dto.request.WebAuthnAuthenticationRequest;
 import com.dayo.capstone.cadence.user.model.User;
 import com.dayo.capstone.cadence.user.service.UserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,6 +20,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/resumption-attendance")
@@ -55,5 +58,29 @@ public class ResumptionAttendanceRecordController {
     ) {
         User student = userService.findEntityByPublicId(principal.userPublicId());
         return ResponseEntity.ok(resumptionAttendanceRecordService.getAttendanceHistory(student));
+    }
+
+    // PRD Section 6.12 — the biometric step after the code was accepted.
+    // A fresh challenge for a pending resumption check-in (retry after a cancelled
+    // prompt or a dropped connection — the code isn't asked for again).
+    @PreAuthorize("hasRole('STUDENT')")
+    @PostMapping("/{recordPublicId}/biometric/challenge")
+    public ResponseEntity<BiometricChallenge> biometricChallenge(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID recordPublicId
+    ) {
+        User student = userService.findEntityByPublicId(principal.userPublicId());
+        return ResponseEntity.ok(resumptionAttendanceRecordService.reissueBiometricChallenge(recordPublicId, student));
+    }
+
+    @PreAuthorize("hasRole('STUDENT')")
+    @PostMapping("/{recordPublicId}/biometric")
+    public ResponseEntity<ResumptionAttendanceRecordResponse> confirmBiometric(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID recordPublicId,
+            @RequestBody WebAuthnAuthenticationRequest assertion
+    ) {
+        User student = userService.findEntityByPublicId(principal.userPublicId());
+        return ResponseEntity.ok(resumptionAttendanceRecordService.confirmBiometric(recordPublicId, assertion, student));
     }
 }

@@ -12,5 +12,8 @@ public record ResumptionAttendanceRecordResponse(
         UUID resumptionSessionPublicId,
         UUID studentPublicId,
         LocalDateTime checkedInAt,
-        String status
+        String status,
+        Boolean webAuthnVerified,
+        // Present only while status is PENDING_BIOMETRIC.
+        BiometricChallenge biometric
 ) {}

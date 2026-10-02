@@ -37,6 +37,7 @@ public class ResumptionAttendanceRecord extends BaseEntity {
     @Column(name = "matched_institution_network")
     private Boolean matchedInstitutionNetwork;
 
+    // Same meaning as AttendanceRecord.webAuthnVerified (PRD Section 6.12).
     @Column(name = "web_authn_verified")
     private Boolean webAuthnVerified;
 
