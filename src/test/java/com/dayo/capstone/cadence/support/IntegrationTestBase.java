@@ -10,7 +10,9 @@ import com.dayo.capstone.cadence.assignment.model.Submission;
 import com.dayo.capstone.cadence.assignment.repository.AssignmentRepository;
 import com.dayo.capstone.cadence.assignment.repository.ExtensionRequestRepository;
 import com.dayo.capstone.cadence.assignment.repository.SubmissionRepository;
+import com.dayo.capstone.cadence.attendance.model.ResumptionSession;
 import com.dayo.capstone.cadence.attendance.model.Session;
+import com.dayo.capstone.cadence.attendance.repository.ResumptionSessionRepository;
 import com.dayo.capstone.cadence.attendance.repository.SessionRepository;
 import com.dayo.capstone.cadence.audit.repository.AuditLogRepository;
 import com.dayo.capstone.cadence.cohort.model.Cohort;
@@ -81,6 +83,7 @@ public abstract class IntegrationTestBase {
     @Autowired protected CohortRepository cohortRepository;
     @Autowired protected SubjectRepository subjectRepository;
     @Autowired protected SessionRepository sessionRepository;
+    @Autowired protected ResumptionSessionRepository resumptionSessionRepository;
     @Autowired protected AssignmentRepository assignmentRepository;
     @Autowired protected SubmissionRepository submissionRepository;
     @Autowired protected ExtensionRequestRepository extensionRequestRepository;
@@ -166,8 +169,24 @@ public abstract class IntegrationTestBase {
         return extensionRequestRepository.save(e);
     }
 
+    protected ResumptionSession resumptionSession(Cohort cohort) {
+        ResumptionSession r = new ResumptionSession();
+        r.setCohort(cohort);
+        r.setResumptionDate(LocalDate.now());
+        r.setResumptionCode(unique("code"));
+        r.setQrToken(UUID.randomUUID().toString());
+        r.setOpensAt(LocalDateTime.now().minusMinutes(5));
+        r.setExpiresAt(LocalDateTime.now().plusMinutes(30));
+        return resumptionSessionRepository.save(r);
+    }
+
     /** An admin role in this institution with the given permissions, granted institution-wide. */
     protected void grant(User user, Institution institution, Permission... permissions) {
+        grant(user, institution, null, permissions);
+    }
+
+    /** As above, scoped to one cohort when {@code cohort} is non-null. */
+    protected void grant(User user, Institution institution, Cohort cohort, Permission... permissions) {
         AdminRole role = new AdminRole();
         role.setInstitution(institution);
         role.setName(unique("role"));
@@ -176,6 +195,7 @@ public abstract class IntegrationTestBase {
         UserAdminRoleAssignment a = new UserAdminRoleAssignment();
         a.setUser(user);
         a.setAdminRole(role);
+        a.setCohort(cohort);
         a.setAssignedAt(LocalDateTime.now());
         assignmentRepositoryForAdmins.save(a);
     }

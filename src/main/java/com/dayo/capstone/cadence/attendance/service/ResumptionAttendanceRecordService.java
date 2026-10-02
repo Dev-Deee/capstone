@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -132,8 +133,10 @@ public class ResumptionAttendanceRecordService {
     }
 
     @Transactional(readOnly = true)
-    public List<CohortAttendanceOverviewEntry> getAllCohortsAttendanceOverview(Institution institution) {
+    public List<CohortAttendanceOverviewEntry> getAllCohortsAttendanceOverview(
+            Institution institution, Predicate<Cohort> visible) {
         return cohortService.getAllByInstitution(institution).stream()
+                .filter(visible)
                 .map(cohort -> {
                     List<CohortEnrollment> enrollments = cohortEnrollmentRepository.findByCohortAndIsActiveTrue(cohort);
                     int studentCount = enrollments.size();
