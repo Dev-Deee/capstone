@@ -150,11 +150,11 @@ public class UserController {
     }
 
     // No @PreAuthorize — same open pattern as SubjectController.getAll()
-    // and CohortController.getAll(). Returns only facilitators, and only
-    // the fields needed to populate a dropdown — not the full user
-    // directory getAll() exposes.
+    // and CohortController.getAll(): any signed-in user, but only their own
+    // institution's active facilitators, for populating dropdowns.
     @GetMapping("/facilitators")
-    public ResponseEntity<List<UserResponse>> getFacilitators() {
-        return ResponseEntity.ok(userService.getFacilitators());
+    public ResponseEntity<List<UserResponse>> getFacilitators(@AuthenticationPrincipal CadencePrincipal principal) {
+        return ResponseEntity.ok(userService.getFacilitators(
+                institutionService.findEntityByUserPublicId(principal.userPublicId())));
     }
 }
