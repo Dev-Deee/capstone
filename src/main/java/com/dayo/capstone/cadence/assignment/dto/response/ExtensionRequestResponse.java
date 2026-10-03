@@ -13,6 +13,8 @@ public record ExtensionRequestResponse(
         UUID studentPublicId,
         String studentName,
         String assignmentTitle,
+        UUID assignmentPublicId,
+        UUID cohortPublicId,
         LocalDateTime requestedNewDeadline,
         String reason,
         ExtensionRequestStatus status,
