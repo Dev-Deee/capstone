@@ -14,5 +14,13 @@ public record SessionResponse(
         String sessionCode,   // only ever returned to the facilitator who opened it — see controller note
         String qrToken,
         LocalDateTime expiresAt,
-        boolean isOpen
+        boolean isOpen,
+        LocalDateTime openedAt,
+        LocalDateTime closedAt,
+        // Filled only in the facilitator's session list (null elsewhere):
+        // students actively enrolled now, those counted as attending
+        // (present or late), and those still awaiting biometric confirmation.
+        Integer enrolledCount,
+        Integer attendedCount,
+        Integer pendingBiometricCount
 ) {}

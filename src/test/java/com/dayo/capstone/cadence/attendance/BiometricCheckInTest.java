@@ -49,6 +49,7 @@ class BiometricCheckInTest extends IntegrationTestBase {
     User facilitator;
     Session session;
     ResumptionSession resumption;
+    com.dayo.capstone.cadence.institution.model.Subject subject;
 
     @BeforeEach
     void setUp() {
@@ -56,7 +57,8 @@ class BiometricCheckInTest extends IntegrationTestBase {
         cohort = cohort(inst);
         facilitator = user("fac");
         member(facilitator, inst, Role.FACILITATOR);
-        session = session(cohort, subject(inst), facilitator);
+        subject = subject(inst);
+        session = session(cohort, subject, facilitator);
         session.setCodeSecret(totpService.generateSecret());
         session = sessionRepository.save(session);
         resumption = resumptionSession(cohort);
@@ -303,5 +305,19 @@ class BiometricCheckInTest extends IntegrationTestBase {
         assertThat(reissue(pending, login(student())).status()).isEqualTo(404);
         assertThat(call("POST", "/api/attendance/" + UUID.randomUUID() + "/biometric/challenge", null, token).status())
                 .isEqualTo(404);
+    }
+
+    @Test
+    void facilitatorsSessionListCountsAttendanceAndPendingSeparately() {
+        checkIn(login(student()));
+        checkIn(login(capableStudent(new SoftwareAuthenticator())));
+        Resp list = get("/api/sessions?cohortPublicId=" + cohort.getPublicId() + "&subjectPublicId=" + subject.getPublicId(),
+                login(facilitator));
+        assertThat(list.status()).isEqualTo(200);
+        var row = list.body().get(0);
+        assertThat(row.get("enrolledCount").asInt()).isEqualTo(2);
+        assertThat(row.get("attendedCount").asInt()).isEqualTo(1);
+        assertThat(row.get("pendingBiometricCount").asInt()).isEqualTo(1);
+        assertThat(row.get("openedAt").isNull()).isFalse();
     }
 }

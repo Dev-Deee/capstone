@@ -58,4 +58,17 @@ public class Assignment extends BaseEntity {
     private boolean isLocked = false;
 
     private String clarificationNote;
+
+    // An optional document for students (brief, starter files…), stored like
+    // submission files. attachmentName is the original filename, for display.
+    @Column(name = "attachment_url", length = 1000)
+    private String attachmentUrl;
+
+    @Column(name = "attachment_name")
+    private String attachmentName;
+
+    // A DRAFT with publishAt set is "scheduled": AssignmentPublishJob publishes
+    // it once this time passes. Null = publish by hand.
+    @Column(name = "publish_at")
+    private LocalDateTime publishAt;
 }

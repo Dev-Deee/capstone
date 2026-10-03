@@ -1,5 +1,7 @@
 package com.dayo.capstone.cadence.attendance.service;
 
+import com.dayo.capstone.cadence.attendance.enums.AttendanceStatus;
+
 import com.dayo.capstone.cadence.attendance.dto.request.OpenSessionRequest;
 import com.dayo.capstone.cadence.attendance.dto.response.CurrentCodeResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.SessionAttendanceRosterEntry;
@@ -162,7 +164,23 @@ public class SessionService {
         List<Session> sessions = caller.hasRole(Role.SUPER_ADMIN)
                 ? sessionRepository.findByCohortAndSubjectOrderByCreatedAtDesc(cohort, subject)
                 : sessionRepository.findByFacilitatorAndCohortAndSubjectOrderByCreatedAtDesc(caller, cohort, subject);
-        return sessions.stream().map(this::toResponse).toList();
+        int enrolled = cohortEnrollmentRepository.findByCohortAndIsActiveTrue(cohort).size();
+        return sessions.stream().map(session -> {
+            List<AttendanceRecord> records = attendanceRecordRepository.findBySession(session);
+            SessionResponse base = toResponse(session);
+            return SessionResponse.builder()
+                    .publicId(base.publicId()).cohortPublicId(base.cohortPublicId())
+                    .subjectPublicId(base.subjectPublicId()).facilitatorPublicId(base.facilitatorPublicId())
+                    .sessionCode(base.sessionCode()).qrToken(base.qrToken())
+                    .expiresAt(base.expiresAt()).isOpen(base.isOpen())
+                    .openedAt(base.openedAt()).closedAt(base.closedAt())
+                    .enrolledCount(enrolled)
+                    .attendedCount((int) records.stream()
+                            .filter(r -> r.getStatus() != null && r.getStatus().countsAsAttended()).count())
+                    .pendingBiometricCount((int) records.stream()
+                            .filter(r -> r.getStatus() == AttendanceStatus.PENDING_BIOMETRIC).count())
+                    .build();
+        }).toList();
     }
 
     // LEFT JOIN of enrolled students against attendance records for this session.
@@ -213,6 +231,8 @@ public class SessionService {
                 .qrToken(session.getQrToken())
                 .expiresAt(session.getExpiresAt())
                 .isOpen(session.isCurrentlyOpen())
+                .openedAt(session.getCreatedAt())
+                .closedAt(session.getClosedAt())
                 .build();
     }
 }
