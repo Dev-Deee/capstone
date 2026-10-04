@@ -56,6 +56,13 @@ public class InstitutionAnalyticsService {
 
     @Transactional(readOnly = true)
     public InstitutionAnalyticsResponse compute(Institution institution, Predicate<Cohort> visible, int days) {
+        return compute(institution, visible, days, session -> true);
+    }
+
+    /** As above, counting only the class sessions {@code classSessions} accepts (e.g. one facilitator's subjects). */
+    @Transactional(readOnly = true)
+    public InstitutionAnalyticsResponse compute(Institution institution, Predicate<Cohort> visible, int days,
+                                                Predicate<Session> classSessions) {
         LocalDate today = LocalDate.now();
         LocalDate since = today.minusDays(days - 1L);
 
@@ -96,6 +103,7 @@ public class InstitutionAnalyticsService {
             }
 
             for (Session s : sessionRepository.findByCohortSince(cohort, since.atStartOfDay())) {
+                if (!classSessions.test(s)) continue;
                 Set<Long> expected = enrolledBy(enrollments, s.getCreatedAt());
                 int attended = (int) attendanceRecordRepository.findBySession(s).stream()
                         .filter(r -> expected.contains(r.getStudent().getId()))
