@@ -163,7 +163,9 @@ public class ResumptionSessionController {
             @AuthenticationPrincipal CadencePrincipal principal,
             @RequestParam UUID cohortPublicId
     ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
         Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        requireAttendanceRead(caller, cohortService.findEntityByPublicIdScopedToInstitution(cohortPublicId, institution));
         return ResponseEntity.ok(resumptionSessionService.getSessionsByCohort(cohortPublicId, institution));
     }
 
@@ -174,7 +176,10 @@ public class ResumptionSessionController {
             @AuthenticationPrincipal CadencePrincipal principal,
             @PathVariable UUID publicId
     ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
         Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        requireAttendanceRead(caller,
+                resumptionSessionService.findEntityByPublicIdScopedToInstitution(publicId, institution).getCohort());
         return ResponseEntity.ok(resumptionSessionService.getAttendanceRoster(publicId, institution));
     }
 
@@ -200,5 +205,14 @@ public class ResumptionSessionController {
     @GetMapping("/qr/{qrToken}")
     public ResponseEntity<ResumptionSessionQrRouteResponse> getByQrToken(@PathVariable String qrToken) {
         return ResponseEntity.ok(resumptionSessionService.getQrRouteInfo(qrToken));
+    }
+
+    // Reading a cohort's resumption record: analysts (VIEW_INSTITUTION_ANALYTICS)
+    // and the admins who run resumption for it (MANAGE_RESUMPTION_CODES, who
+    // need the roster to make overrides).
+    private void requireAttendanceRead(User caller, Cohort cohort) {
+        if (caller.hasRole(Role.SUPER_ADMIN)) return;
+        if (adminPermissionService.hasPermissionForCohort(caller, Permission.VIEW_INSTITUTION_ANALYTICS, cohort)) return;
+        adminPermissionService.requirePermissionForCohort(caller, Permission.MANAGE_RESUMPTION_CODES, cohort);
     }
 }

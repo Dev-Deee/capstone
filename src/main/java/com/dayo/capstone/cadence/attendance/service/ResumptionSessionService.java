@@ -129,6 +129,8 @@ public class ResumptionSessionService {
     }
 
     // Tenant-scoped — same pattern as CohortService/SubjectService.
+    // @Transactional: reads the lazy cohort, and controllers call this directly.
+    @Transactional(readOnly = true)
     public ResumptionSession findEntityByPublicIdScopedToInstitution(UUID publicId, Institution callerInstitution) {
         ResumptionSession session = findEntityByPublicId(publicId);
         if (!session.getCohort().getInstitution().getId().equals(callerInstitution.getId())) {
