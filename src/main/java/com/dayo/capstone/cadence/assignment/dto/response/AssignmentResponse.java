@@ -19,5 +19,8 @@ public record AssignmentResponse(
         int maxResubmissions,
         boolean isLocked,
         String clarificationNote,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        String attachmentUrl,
+        String attachmentName,
+        LocalDateTime publishAt
 ) {}

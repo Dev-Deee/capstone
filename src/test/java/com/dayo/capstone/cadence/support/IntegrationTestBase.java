@@ -170,9 +170,13 @@ public abstract class IntegrationTestBase {
     }
 
     protected ResumptionSession resumptionSession(Cohort cohort) {
+        return resumptionSession(cohort, LocalDate.now());
+    }
+
+    protected ResumptionSession resumptionSession(Cohort cohort, LocalDate date) {
         ResumptionSession r = new ResumptionSession();
         r.setCohort(cohort);
-        r.setResumptionDate(LocalDate.now());
+        r.setResumptionDate(date);
         r.setResumptionCode(unique("code"));
         r.setQrToken(UUID.randomUUID().toString());
         r.setOpensAt(LocalDateTime.now().minusMinutes(5));

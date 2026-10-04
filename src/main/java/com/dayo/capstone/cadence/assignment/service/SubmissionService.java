@@ -127,6 +127,14 @@ public class SubmissionService {
     }
 
     private SubmissionResponse toResponse(Submission submission) {
+        LocalDateTime effectiveDeadline = extensionRequestRepository
+                .findFirstBySubmissionAndStatusOrderByCreatedAtDesc(submission, ExtensionRequestStatus.APPROVED)
+                .map(e -> e.getRequestedNewDeadline())
+                .orElse(submission.getAssignment().getDeadline());
+        ExtensionRequestStatus extensionStatus = extensionRequestRepository.findBySubmission(submission).stream()
+                .max(java.util.Comparator.comparing(e -> e.getCreatedAt()))
+                .map(e -> e.getStatus())
+                .orElse(null);
         return SubmissionResponse.builder()
                 .publicId(submission.getPublicId())
                 .assignmentPublicId(submission.getAssignment().getPublicId())
@@ -138,6 +146,8 @@ public class SubmissionService {
                 .submittedAt(submission.getSubmittedAt())
                 .resubmissionCount(submission.getResubmissionCount())
                 .createdAt(submission.getCreatedAt())
+                .effectiveDeadline(effectiveDeadline)
+                .extensionStatus(extensionStatus)
                 .build();
     }
 }

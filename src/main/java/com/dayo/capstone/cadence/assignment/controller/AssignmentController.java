@@ -22,6 +22,11 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
+import java.time.LocalDateTime;
+import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
+import java.io.IOException;
 
 @RestController
 @RequestMapping("/api/assignments")
@@ -91,6 +96,49 @@ public class AssignmentController {
             adminPermissionService.requirePermission(caller, Permission.MANAGE_ASSIGNMENTS);
         }
         return ResponseEntity.ok(assignmentService.close(publicId, caller, callerInstitution));
+    }
+
+    // Publish later: {"publishAt": "2026-10-05T09:00:00"} — or null to unschedule.
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('FACILITATOR')")
+    @PatchMapping("/{publicId}/schedule")
+    public ResponseEntity<AssignmentResponse> schedule(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId,
+            @RequestBody Map<String, String> body
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        Institution callerInstitution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        String raw = body.get("publishAt");
+        LocalDateTime publishAt = raw == null || raw.isBlank() ? null : LocalDateTime.parse(raw);
+        return ResponseEntity.ok(assignmentService.schedule(publicId, publishAt, caller, callerInstitution));
+    }
+
+    // The assignment's document for students. Replaces any existing one.
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('FACILITATOR')")
+    @PostMapping(value = "/{publicId}/attachment", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<AssignmentResponse> attach(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId,
+            @RequestParam MultipartFile file
+    ) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Choose a file to attach");
+        }
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        Institution callerInstitution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(assignmentService.attach(
+                publicId, file.getBytes(), file.getOriginalFilename(), caller, callerInstitution));
+    }
+
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('FACILITATOR')")
+    @DeleteMapping("/{publicId}/attachment")
+    public ResponseEntity<AssignmentResponse> removeAttachment(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        Institution callerInstitution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(assignmentService.removeAttachment(publicId, caller, callerInstitution));
     }
 
     @GetMapping("/cohort/{cohortPublicId}")

@@ -107,6 +107,8 @@ public class ExtensionRequestService {
                 .studentPublicId(ext.getStudent().getPublicId())
                 .studentName(ext.getStudent().getFullName())
                 .assignmentTitle(ext.getSubmission().getAssignment().getTitle())
+                .assignmentPublicId(ext.getSubmission().getAssignment().getPublicId())
+                .cohortPublicId(ext.getSubmission().getAssignment().getCohort().getPublicId())
                 .requestedNewDeadline(ext.getRequestedNewDeadline())
                 .reason(ext.getReason())
                 .status(ext.getStatus())

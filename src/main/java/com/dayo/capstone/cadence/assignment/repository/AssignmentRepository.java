@@ -17,4 +17,7 @@ public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
     List<Assignment> findByFacilitator(User facilitator);
     List<Assignment> findByCohortAndStatus(Cohort cohort, AssignmentStatus status);
     List<Assignment> findByStatusAndDeadlineBefore(AssignmentStatus status, LocalDateTime deadline);
+
+    // Scheduled drafts whose publish time has come (AssignmentPublishJob).
+    List<Assignment> findByStatusAndPublishAtLessThanEqual(AssignmentStatus status, LocalDateTime now);
 }
