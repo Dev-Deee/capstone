@@ -6,6 +6,7 @@ import com.dayo.capstone.cadence.attendance.dto.response.SessionAttendanceRoster
 import com.dayo.capstone.cadence.attendance.dto.response.SessionQrRouteResponse;
 import com.dayo.capstone.cadence.attendance.dto.response.SessionResponse;
 import com.dayo.capstone.cadence.attendance.enums.SessionClosedBy;
+import com.dayo.capstone.cadence.common.tenant.TenantGuard;
 import com.dayo.capstone.cadence.attendance.model.AttendanceRecord;
 import com.dayo.capstone.cadence.attendance.model.Session;
 import com.dayo.capstone.cadence.attendance.repository.AttendanceRecordRepository;
@@ -135,7 +136,9 @@ public class SessionService {
 
     // Public — used by the QR-route endpoint (unauthenticated).
     // Returns 404 for both "never existed" and "closed" — no information
-    // leakage about whether the session ever existed.
+    // leakage about whether the session ever existed. @Transactional because the
+    // response reads the lazy cohort/subject (OSIV is disabled).
+    @Transactional(readOnly = true)
     public SessionQrRouteResponse getQrRouteInfo(String qrToken) {
         Session session = sessionRepository.findByQrToken(qrToken)
                 .filter(Session::isCurrentlyOpen)
@@ -167,6 +170,8 @@ public class SessionService {
     @Transactional(readOnly = true)
     public List<SessionAttendanceRosterEntry> getAttendanceRoster(UUID sessionPublicId, User caller) {
         Session session = findEntityByPublicId(sessionPublicId);
+        // The SUPER_ADMIN short-circuit below must only apply inside their own institution.
+        TenantGuard.requireCurrent(session.getCohort().getInstitution().getId(), "Session");
         if (!caller.hasRole(Role.SUPER_ADMIN)
                 && !session.getFacilitator().getId().equals(caller.getId())) {
             throw new AccessDeniedException("Only the facilitator who opened this session may view attendance");

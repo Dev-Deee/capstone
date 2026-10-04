@@ -2,6 +2,7 @@ package com.dayo.capstone.cadence.institution.dto.response;
 
 import com.dayo.capstone.cadence.institution.enums.GuardianLinkageMode;
 import com.dayo.capstone.cadence.institution.enums.GuardianNotificationDefault;
+import com.dayo.capstone.cadence.institution.enums.InstitutionStatus;
 import lombok.Builder;
 
 import java.time.LocalDateTime;
@@ -15,6 +16,8 @@ import java.util.UUID;
 public record InstitutionResponse(
         UUID publicId,
         String name,
+        String slug,
+        InstitutionStatus status,
         String address,
         boolean isActive,
         GuardianLinkageMode guardianLinkageMode,

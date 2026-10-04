@@ -1,0 +1,154 @@
+package com.dayo.capstone.cadence.security.service;
+
+import com.dayo.capstone.cadence.institution.model.Institution;
+import com.dayo.capstone.cadence.institution.model.Membership;
+import com.dayo.capstone.cadence.security.config.JwtProperties;
+import com.dayo.capstone.cadence.security.dto.response.AuthResponse;
+import com.dayo.capstone.cadence.security.model.RefreshToken;
+import com.dayo.capstone.cadence.security.repository.RefreshTokenRepository;
+import com.dayo.capstone.cadence.user.enums.Role;
+import com.dayo.capstone.cadence.user.model.User;
+import com.dayo.capstone.cadence.user.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
+
+/**
+ * Issues access + refresh tokens for one (user, institution) session. Every
+ * sign-in path goes through here — password login, biometric login, refresh,
+ * switching institution, institution sign-up and invite acceptance — so the
+ * rule for which institution a session may act in lives in one place:
+ * an active membership, or (only) a platform admin entering any institution.
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class SessionTokenService {
+
+    private final JwtService jwtService;
+    private final JwtProperties jwtProperties;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final UserRepository userRepository;
+
+    /** Where a fresh login lands: the last institution used, else the oldest membership. */
+    public Institution defaultInstitutionFor(User user) {
+        Institution last = user.getLastActiveInstitution();
+        if (last != null && activeMembership(user, last) != null) {
+            return last;
+        }
+        Institution first = user.getMemberships().stream()
+                .filter(Membership::isActive)
+                .min(Comparator.comparing(Membership::getCreatedAt))
+                .map(Membership::getInstitution)
+                .orElse(null);
+        if (first == null && !user.isPlatformAdmin()) {
+            throw new BadCredentialsException("Your account isn't part of any institution yet.");
+        }
+        return first;
+    }
+
+    @Transactional
+    public AuthResponse issue(User user, Institution institution, String userAgent, String ipAddress) {
+        Set<String> roles = rolesIn(user, institution);
+
+        // Revoke any existing active session from this same browser/device before
+        // issuing a new one — prevents unbounded accumulation of "Active" devices
+        // every time the same browser logs in again.
+        refreshTokenRepository.findByUserAndUserAgentAndRevokedFalse(user, userAgent)
+                .forEach(existing -> {
+                    existing.setRevoked(true);
+                    existing.setRevokedAt(LocalDateTime.now());
+                    refreshTokenRepository.save(existing);
+                });
+
+        String rawRefreshToken = jwtService.generateRefreshTokenRaw();
+        RefreshToken refreshToken = new RefreshToken();
+        refreshToken.setUser(user);
+        refreshToken.setInstitution(institution);
+        refreshToken.setTokenHash(jwtService.hashToken(rawRefreshToken));
+        refreshToken.setExpiresAt(LocalDateTime.now().plusSeconds(jwtProperties.getRefreshTokenExpiryMs() / 1000));
+        refreshToken.setUserAgent(userAgent);
+        refreshToken.setIpAddress(ipAddress);
+        refreshToken.setLastUsedAt(LocalDateTime.now());
+        refreshTokenRepository.save(refreshToken);
+
+        if (institution != null) {
+            user.setLastActiveInstitution(institution);
+            userRepository.save(user);
+        }
+
+        return response(user, institution, roles, jwtService.generateAccessToken(
+                user.getPublicId(), roles, institution != null ? institution.getPublicId() : null, user.isPlatformAdmin()),
+                rawRefreshToken);
+    }
+
+    /** New access token for the same session, after re-checking the user may still act in its institution. */
+    @Transactional
+    public AuthResponse refresh(RefreshToken storedToken, String rawRefreshToken) {
+        User user = storedToken.getUser();
+        Institution institution = storedToken.getInstitution();
+        Set<String> roles;
+        try {
+            roles = rolesIn(user, institution);
+        } catch (AccessDeniedException e) {
+            // Removed or suspended since this session began — end it.
+            storedToken.setRevoked(true);
+            storedToken.setRevokedAt(LocalDateTime.now());
+            refreshTokenRepository.save(storedToken);
+            throw new BadCredentialsException("Your access to this institution has changed. Please sign in again.");
+        }
+        storedToken.setLastUsedAt(LocalDateTime.now());
+        refreshTokenRepository.save(storedToken);
+        return response(user, institution, roles, jwtService.generateAccessToken(
+                user.getPublicId(), roles, institution != null ? institution.getPublicId() : null, user.isPlatformAdmin()),
+                rawRefreshToken);
+    }
+
+    /**
+     * The caller's roles in the given institution: their active membership's
+     * roles, or SUPER_ADMIN for a platform admin entering an institution they
+     * don't belong to. Anyone else is refused — this is the tenant boundary.
+     */
+    public Set<String> rolesIn(User user, Institution institution) {
+        if (institution == null) {
+            if (!user.isPlatformAdmin()) {
+                throw new AccessDeniedException("Choose an institution you belong to");
+            }
+            return Set.of();
+        }
+        Membership membership = activeMembership(user, institution);
+        if (membership != null) {
+            return membership.getRoles().stream().map(Role::name).collect(Collectors.toCollection(TreeSet::new));
+        }
+        if (user.isPlatformAdmin()) {
+            return Set.of(Role.SUPER_ADMIN.name());
+        }
+        throw new AccessDeniedException("You are not a member of this institution");
+    }
+
+    private Membership activeMembership(User user, Institution institution) {
+        return user.membershipIn(institution.getId()).filter(Membership::isActive).orElse(null);
+    }
+
+    private AuthResponse response(User user, Institution institution, Set<String> roles, String accessToken, String rawRefreshToken) {
+        return AuthResponse.builder()
+                .userPublicId(user.getPublicId())
+                .accessToken(accessToken)
+                .refreshToken(rawRefreshToken)
+                .roles(roles)
+                .institutionPublicId(institution != null ? institution.getPublicId() : null)
+                .institutionName(institution != null ? institution.getName() : null)
+                .institutionSlug(institution != null ? institution.getSlug() : null)
+                .platformAdmin(user.isPlatformAdmin())
+                .build();
+    }
+}

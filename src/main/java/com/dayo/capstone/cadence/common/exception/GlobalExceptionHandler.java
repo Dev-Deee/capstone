@@ -40,6 +40,18 @@ public class GlobalExceptionHandler {
         return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<Map<String, Object>> handleForbidden(ForbiddenException ex) {
+        log.warn("Forbidden: {}", ex.getMessage());
+        return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleConflict(ConflictException ex) {
+        log.warn("Conflict: {}", ex.getMessage());
+        return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDenied(AccessDeniedException ex) {
         log.warn("Access denied: {}", ex.getMessage());

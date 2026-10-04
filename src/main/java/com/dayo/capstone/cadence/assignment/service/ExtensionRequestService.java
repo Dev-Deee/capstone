@@ -1,5 +1,6 @@
 package com.dayo.capstone.cadence.assignment.service;
 
+import com.dayo.capstone.cadence.common.tenant.TenantGuard;
 import com.dayo.capstone.cadence.assignment.dto.request.CreateExtensionRequestRequest;
 import com.dayo.capstone.cadence.assignment.dto.request.ReviewExtensionRequest;
 import com.dayo.capstone.cadence.assignment.dto.response.ExtensionRequestResponse;
@@ -58,6 +59,9 @@ public class ExtensionRequestService {
     public ExtensionRequestResponse reviewExtension(UUID extensionRequestPublicId, User reviewer,
                                                     ReviewExtensionRequest request) {
         ExtensionRequest extensionRequest = findEntityByPublicId(extensionRequestPublicId);
+        // The SUPER_ADMIN short-circuit below must only apply inside their own institution.
+        TenantGuard.requireCurrent(extensionRequest.getSubmission().getAssignment().getCohort().getInstitution().getId(),
+                "Extension request");
         User assignmentFacilitator = extensionRequest.getSubmission().getAssignment().getFacilitator();
 
         // Only the assignment's own facilitator or a SUPER_ADMIN may review.

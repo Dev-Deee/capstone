@@ -41,9 +41,15 @@ public class CohortService {
         return toResponse(findEntityByPublicId(publicId));
     }
 
+    // Scoped to the caller's institution — Cadence is multi-tenant.
     @Transactional(readOnly = true)
-    public List<CohortResponse> getAll() {
-        return cohortRepository.findAll().stream().map(this::toResponse).toList();
+    public List<CohortResponse> getAll(Institution callerInstitution) {
+        return cohortRepository.findByInstitution(callerInstitution).stream().map(this::toResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public CohortResponse getByPublicIdScopedToInstitution(UUID publicId, Institution callerInstitution) {
+        return toResponse(findEntityByPublicIdScopedToInstitution(publicId, callerInstitution));
     }
 
     @Transactional(readOnly = true)
@@ -59,7 +65,7 @@ public class CohortService {
                 .orElseThrow(() -> new ResourceNotFoundException("Cohort not found: " + publicId));
     }
 
-    // Tenant-scoped lookup — used anywhere a MANAGEMENT-or-below caller's
+    // Tenant-scoped lookup — used anywhere a caller's
     // own institution must be enforced (PRD Section 18.1). Deliberately
     // throws the SAME "not found" message on a cross-tenant hit as on a
     // genuine miss — never reveal that a cohort exists at a DIFFERENT

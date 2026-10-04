@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,4 +26,8 @@ public interface SessionRepository extends JpaRepository<Session, Long> {
     // Attendance history — facilitator sees their own, SUPER_ADMIN sees all.
     List<Session> findByFacilitatorAndCohortAndSubjectOrderByCreatedAtDesc(User facilitator, Cohort cohort, Subject subject);
     List<Session> findByCohortAndSubjectOrderByCreatedAtDesc(Cohort cohort, Subject subject);
+
+    // A student's class history — every session for their cohort since they enrolled.
+    @Query("SELECT s FROM Session s WHERE s.cohort = :cohort AND s.createdAt >= :since ORDER BY s.createdAt DESC")
+    List<Session> findByCohortSince(@Param("cohort") Cohort cohort, @Param("since") LocalDateTime since);
 }

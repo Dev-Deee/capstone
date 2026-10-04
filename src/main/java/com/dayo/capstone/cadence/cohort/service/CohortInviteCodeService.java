@@ -14,6 +14,7 @@ import com.dayo.capstone.cadence.cohort.repository.CohortInviteCodeRepository;
 import com.dayo.capstone.cadence.common.enums.Permission;
 import com.dayo.capstone.cadence.common.exception.ResourceNotFoundException;
 import com.dayo.capstone.cadence.institution.model.Institution;
+import com.dayo.capstone.cadence.institution.service.MembershipService;
 import com.dayo.capstone.cadence.security.service.EmailService;
 import com.dayo.capstone.cadence.security.service.SmsService;
 import com.dayo.capstone.cadence.user.enums.Role;
@@ -29,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -51,6 +53,7 @@ public class CohortInviteCodeService {
     private final AdminPermissionService adminPermissionService;
     private final EmailService emailService;
     private final SmsService smsService;
+    private final MembershipService membershipService;
 
     @Value("${app.frontend-url}")
     private String frontendUrl;
@@ -145,9 +148,6 @@ public class CohortInviteCodeService {
         CohortInviteCode invite = resolveRedeemable(rawCode);
         Cohort cohort = invite.getCohort();
 
-        if (!cohort.getInstitution().getId().equals(student.getInstitution().getId())) {
-            throw new IllegalArgumentException("Invalid or expired invite code");
-        }
 
         cohortEnrollmentRepository.findByStudentAndIsActiveTrue(student).ifPresent(existing -> {
             if (existing.getCohort().getId().equals(cohort.getId())) {
@@ -163,6 +163,11 @@ public class CohortInviteCodeService {
                             + " was ended. Ask an admin to re-enroll you.");
                 });
 
+        // The code proves the right to join; a student from another institution
+        // becomes a STUDENT member of this one (multi-tenant).
+        if (!student.isMemberOf(cohort.getInstitution().getId())) {
+            membershipService.add(student, cohort.getInstitution(), EnumSet.of(Role.STUDENT));
+        }
         CohortEnrollment enrollment = cohortEnrollmentService.enroll(student, cohort);
         markUsed(invite);
 

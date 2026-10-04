@@ -4,6 +4,7 @@ import com.dayo.capstone.cadence.admin.service.AdminPermissionService;
 import com.dayo.capstone.cadence.common.enums.Permission;
 import com.dayo.capstone.cadence.institution.service.InstitutionService;
 import com.dayo.capstone.cadence.security.CadencePrincipal;
+import com.dayo.capstone.cadence.user.dto.request.UpdateRolesRequest;
 import com.dayo.capstone.cadence.user.dto.request.UpdateUserRequest;
 import com.dayo.capstone.cadence.user.dto.response.UserResponse;
 import com.dayo.capstone.cadence.user.enums.Role;
@@ -102,20 +103,42 @@ public class UserController {
         return ResponseEntity.ok(userService.setActive(publicId, false, caller));
     }
 
-    // Soft delete + anonymize (PRD 18.1) — never a hard delete.
+    // Removes the user from the caller's institution only — their account and
+    // any other institutions they belong to are untouched (multi-tenant).
     @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @DeleteMapping("/{publicId}")
-    public ResponseEntity<Void> delete(
+    public ResponseEntity<Void> removeFromInstitution(
             @AuthenticationPrincipal CadencePrincipal principal,
             @PathVariable UUID publicId
     ) {
         User caller = userService.findEntityByPublicId(principal.userPublicId());
-        userService.softDeleteByAdmin(publicId, caller);
+        userService.removeFromInstitution(publicId, caller);
         return ResponseEntity.noContent().build();
     }
 
-    // A user may delete (soft-delete/anonymize) their own account.
-    // Admin deletion of another user is DELETE /{publicId} above.
+    // Owners only: replace someone's roles in this institution. Refuses to
+    // remove the last SUPER_ADMIN.
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PutMapping("/{publicId}/roles")
+    public ResponseEntity<UserResponse> updateRoles(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId,
+            @Valid @RequestBody UpdateRolesRequest request
+    ) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        return ResponseEntity.ok(userService.updateRoles(publicId, request.getRoles(), caller));
+    }
+
+    // The caller leaves the institution they're working in (refused for the last SUPER_ADMIN).
+    @PostMapping("/me/leave-institution")
+    public ResponseEntity<Void> leaveInstitution(@AuthenticationPrincipal CadencePrincipal principal) {
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
+        userService.leaveCurrentInstitution(caller);
+        return ResponseEntity.noContent().build();
+    }
+
+    // A user may delete (soft-delete/anonymize) their own account everywhere —
+    // refused while they are the only SUPER_ADMIN of any institution.
     @DeleteMapping("/me")
     public ResponseEntity<Void> deleteSelf(@AuthenticationPrincipal CadencePrincipal principal) {
         userService.softDeleteAndAnonymize(principal.userPublicId());
@@ -150,11 +173,11 @@ public class UserController {
     }
 
     // No @PreAuthorize — same open pattern as SubjectController.getAll()
-    // and CohortController.getAll(). Returns only facilitators, and only
-    // the fields needed to populate a dropdown — not the full user
-    // directory getAll() exposes.
+    // and CohortController.getAll(): any signed-in user, but only their own
+    // institution's active facilitators, for populating dropdowns.
     @GetMapping("/facilitators")
-    public ResponseEntity<List<UserResponse>> getFacilitators() {
-        return ResponseEntity.ok(userService.getFacilitators());
+    public ResponseEntity<List<UserResponse>> getFacilitators(@AuthenticationPrincipal CadencePrincipal principal) {
+        return ResponseEntity.ok(userService.getFacilitators(
+                institutionService.findEntityByUserPublicId(principal.userPublicId())));
     }
 }

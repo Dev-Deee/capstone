@@ -14,9 +14,9 @@ import java.time.LocalDateTime;
  * lands in the right institution, no separate lookup needed.
  *
  * Self-registration via this code always produces STUDENT accounts —
- * no assignedRole field exists here. FACILITATOR/MANAGEMENT/SUPER_ADMIN
- * accounts are never self-registered; they're always admin-created
- * directly via the gated UserController.
+ * no assignedRole field exists here. FACILITATOR/ADMIN/SUPER_ADMIN
+ * accounts are never self-registered; staff join through the
+ * staff-invite flow.
  */
 @Entity
 @Table(name = "cohort_invite_code")

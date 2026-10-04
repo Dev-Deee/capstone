@@ -12,6 +12,7 @@ import com.dayo.capstone.cadence.attendance.dto.response.ResumptionSessionRespon
 import com.dayo.capstone.cadence.attendance.model.ResumptionSession;
 import com.dayo.capstone.cadence.attendance.service.ResumptionAttendanceRecordService;
 import com.dayo.capstone.cadence.attendance.service.ResumptionSessionService;
+import com.dayo.capstone.cadence.cohort.model.Cohort;
 import com.dayo.capstone.cadence.cohort.service.CohortService;
 import com.dayo.capstone.cadence.common.enums.Permission;
 import com.dayo.capstone.cadence.institution.model.Institution;
@@ -110,16 +111,24 @@ public class ResumptionSessionController {
                 resumptionSessionService.adjustWindow(publicId, request.getNewExpiresAt(), institution));
     }
 
-    @PreAuthorize("hasRole('FACILITATOR')")
+    // Facilitators (any cohort at their institution), super admins, and admins
+    // holding MANAGE_RESUMPTION_CODES for the cohort — the same permission that
+    // already governs regenerate/close/adjust-window.
+    @PreAuthorize("hasRole('FACILITATOR') or hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @PostMapping
     public ResponseEntity<ResumptionSessionResponse> open(
             @AuthenticationPrincipal CadencePrincipal principal,
             @Valid @RequestBody OpenResumptionSessionRequest request
     ) {
-        User facilitator = userService.findEntityByPublicId(principal.userPublicId());
+        User caller = userService.findEntityByPublicId(principal.userPublicId());
         Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        if (!caller.hasRole(Role.SUPER_ADMIN) && !caller.hasRole(Role.FACILITATOR)) {
+            Cohort cohort = cohortService.findEntityByPublicIdScopedToInstitution(
+                    UUID.fromString(request.getCohortPublicId()), institution);
+            adminPermissionService.requirePermissionForCohort(caller, Permission.MANAGE_RESUMPTION_CODES, cohort);
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(resumptionSessionService.open(request, facilitator, institution));
+                .body(resumptionSessionService.open(request, caller, institution));
     }
 
     @PreAuthorize("hasRole('FACILITATOR')")

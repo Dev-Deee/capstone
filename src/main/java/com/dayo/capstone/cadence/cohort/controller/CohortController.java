@@ -19,6 +19,7 @@ import com.dayo.capstone.cadence.institution.model.Institution;
 import com.dayo.capstone.cadence.institution.service.InstitutionService;
 import com.dayo.capstone.cadence.security.CadencePrincipal;
 import com.dayo.capstone.cadence.user.enums.Role;
+import com.dayo.capstone.cadence.user.dto.response.UserResponse;
 import com.dayo.capstone.cadence.user.model.User;
 import com.dayo.capstone.cadence.user.service.UserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -47,7 +48,7 @@ public class CohortController {
     private final AdminPermissionService adminPermissionService;
     private final CohortEnrollmentService cohortEnrollmentService;
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @PostMapping
     public ResponseEntity<CohortResponse> create(
             @AuthenticationPrincipal CadencePrincipal principal,
@@ -61,9 +62,12 @@ public class CohortController {
         return ResponseEntity.status(HttpStatus.CREATED).body(cohortService.create(request, institution));
     }
 
+    // Enroll a student in this cohort, or move them here from their current one.
+    // Admin/super-admin only — students can't move themselves. Permission checks
+    // (MANAGE_ENROLLMENTS for both cohorts), history handling and audit live in the service.
     @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @PostMapping("/{cohortPublicId}/enrollments")
-    public ResponseEntity<Void> enrollStudent(
+    public ResponseEntity<UserResponse> enrollStudent(
             @AuthenticationPrincipal CadencePrincipal principal,
             @PathVariable UUID cohortPublicId,
             @Valid @RequestBody EnrollStudentRequest request
@@ -71,14 +75,9 @@ public class CohortController {
         User caller = userService.findEntityByPublicId(principal.userPublicId());
         Institution callerInstitution = institutionService.findEntityByUserPublicId(principal.userPublicId());
         Cohort cohort = cohortService.findEntityByPublicIdScopedToInstitution(cohortPublicId, callerInstitution);
-
-        if (!caller.hasRole(Role.SUPER_ADMIN)) {
-            adminPermissionService.requirePermissionForCohort(caller, Permission.MANAGE_ENROLLMENTS, cohort);
-        }
-
-        User student = userService.findEntityByPublicId(request.studentPublicId());
-        cohortEnrollmentService.enroll(student, cohort);
-        return ResponseEntity.status(HttpStatus.CREATED).build();
+        User student = userService.findInCallerInstitution(request.studentPublicId(), caller);
+        cohortEnrollmentService.assignByAdmin(student, cohort, caller);
+        return ResponseEntity.ok(userService.getByPublicId(student.getPublicId()));
     }
     // Nested under a specific cohort's own path, and given its own method
     // name — resolves both the duplicate-mapping and duplicate-method-name
@@ -157,13 +156,19 @@ public class CohortController {
         return ResponseEntity.ok(cohortService.update(publicId, request, callerInstitution));
     }
 
+    // Both reads are limited to the caller's institution (multi-tenant).
     @GetMapping("/{publicId}")
-    public ResponseEntity<CohortResponse> getOne(@PathVariable UUID publicId) {
-        return ResponseEntity.ok(cohortService.getByPublicId(publicId));
+    public ResponseEntity<CohortResponse> getOne(
+            @AuthenticationPrincipal CadencePrincipal principal,
+            @PathVariable UUID publicId
+    ) {
+        Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(cohortService.getByPublicIdScopedToInstitution(publicId, institution));
     }
 
     @GetMapping
-    public ResponseEntity<List<CohortResponse>> getAll() {
-        return ResponseEntity.ok(cohortService.getAll());
+    public ResponseEntity<List<CohortResponse>> getAll(@AuthenticationPrincipal CadencePrincipal principal) {
+        Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
+        return ResponseEntity.ok(cohortService.getAll(institution));
     }
 }

@@ -3,6 +3,7 @@ package com.dayo.capstone.cadence.institution.model;
 import com.dayo.capstone.cadence.common.BaseEntity;
 import com.dayo.capstone.cadence.institution.enums.GuardianLinkageMode;
 import com.dayo.capstone.cadence.institution.enums.GuardianNotificationDefault;
+import com.dayo.capstone.cadence.institution.enums.InstitutionStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -23,6 +24,15 @@ import java.time.LocalTime;
 public class Institution extends BaseEntity {
 
     private String name;
+
+    // URL-safe identifier chosen at sign-up. Immutable: renaming the institution
+    // never changes it, so links and bookmarks built on it don't break.
+    @Column(unique = true, nullable = false, updatable = false, length = 50)
+    private String slug;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private InstitutionStatus status = InstitutionStatus.ACTIVE;
     private String address;
     private boolean isActive = true;
 
