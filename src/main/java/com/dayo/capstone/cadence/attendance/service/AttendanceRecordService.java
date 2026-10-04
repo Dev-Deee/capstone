@@ -3,6 +3,7 @@ package com.dayo.capstone.cadence.attendance.service;
 import com.dayo.capstone.cadence.attendance.dto.request.ManualAttendanceOverrideRequest;
 import com.dayo.capstone.cadence.attendance.dto.request.MarkAttendanceRequest;
 import com.dayo.capstone.cadence.attendance.dto.response.AttendanceRecordResponse;
+import com.dayo.capstone.cadence.attendance.dto.response.BiometricChallenge;
 import com.dayo.capstone.cadence.attendance.dto.response.SessionAttendanceHistoryEntry;
 import com.dayo.capstone.cadence.attendance.repository.SessionRepository;
 import com.dayo.capstone.cadence.attendance.enums.AttendanceStatus;
@@ -17,6 +18,7 @@ import com.dayo.capstone.cadence.cohort.model.CohortEnrollment;
 import com.dayo.capstone.cadence.cohort.repository.CohortEnrollmentRepository;
 import com.dayo.capstone.cadence.common.exception.ResourceNotFoundException;
 import com.dayo.capstone.cadence.institution.model.Institution;
+import com.dayo.capstone.cadence.security.dto.request.WebAuthnAuthenticationRequest;
 import com.dayo.capstone.cadence.user.enums.Role;
 import com.dayo.capstone.cadence.user.model.User;
 import com.dayo.capstone.cadence.user.service.UserService;
@@ -44,6 +46,7 @@ public class AttendanceRecordService {
     private final CohortEnrollmentRepository cohortEnrollmentRepository;
     private final UserService userService;
     private final AuditLogService auditLogService;
+    private final CheckInBiometricService checkInBiometricService;
 
     @Transactional
     public AttendanceRecordResponse markAttendance(MarkAttendanceRequest request, User student) {
@@ -67,23 +70,77 @@ public class AttendanceRecordService {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Session code is invalid or has expired"));
 
-        attendanceRecordRepository.findBySessionAndStudent(session, student)
-                .ifPresent(existing -> {
-                    throw new IllegalArgumentException("Attendance already marked for this session");
-                });
+        var existing = attendanceRecordRepository.findBySessionAndStudent(session, student);
+        if (existing.isPresent()) {
+            // Code accepted earlier but the biometric step never finished (a
+            // dropped connection, a closed tab): re-entering the code resumes it.
+            if (existing.get().getStatus() == AttendanceStatus.PENDING_BIOMETRIC) {
+                return toResponse(existing.get(), biometricChallenge(existing.get(), student));
+            }
+            throw new IllegalArgumentException("Attendance already marked for this session");
+        }
 
+        // PRD Section 6.12: a webAuthnCapable student's check-in is incomplete
+        // until they confirm on-device. The record is created now — holding the
+        // slot, so a network blip during the biometric step never costs them the
+        // correct code — but it doesn't count as attendance until confirmed.
+        boolean biometric = checkInBiometricService.isRequiredFor(student);
         AttendanceRecord record = new AttendanceRecord();
         record.setSession(session);
         record.setStudent(student);
-        record.setStatus(AttendanceStatus.PRESENT);
+        record.setStatus(biometric ? AttendanceStatus.PENDING_BIOMETRIC : AttendanceStatus.PRESENT);
         record.setVerificationMethod(VerificationMethod.CODE);
+        record.setWebAuthnVerified(biometric ? Boolean.FALSE : null);
         record.setSubmittedAt(LocalDateTime.now());
 
         AttendanceRecord saved = attendanceRecordRepository.save(record);
-        log.info("Attendance marked: sessionPublicId={}, studentPublicId={}",
-                session.getPublicId(), student.getPublicId());
+        log.info("Attendance marked: sessionPublicId={}, studentPublicId={}, status={}",
+                session.getPublicId(), student.getPublicId(), saved.getStatus());
 
+        return toResponse(saved, biometric ? biometricChallenge(saved, student) : null);
+    }
+
+    // A fresh single-use challenge for a check-in awaiting biometric confirmation —
+    // the retry path after a cancelled prompt or a dropped connection, no code needed.
+    @Transactional(readOnly = true)
+    public BiometricChallenge reissueBiometricChallenge(UUID recordPublicId, User student) {
+        return biometricChallenge(pendingRecord(recordPublicId, student), student);
+    }
+
+    // Completes a pending check-in. Only a verified assertion from one of the
+    // student's own credentials sets webAuthnVerified = true; any failure
+    // throws, and the record stays pending (webAuthnVerified = false) for a
+    // retry or the facilitator's manual override.
+    @Transactional
+    public AttendanceRecordResponse confirmBiometric(
+            UUID recordPublicId, WebAuthnAuthenticationRequest assertion, User student) {
+        AttendanceRecord record = pendingRecord(recordPublicId, student);
+        checkInBiometricService.verify(challengeKey(record), student, assertion);
+        record.setStatus(AttendanceStatus.PRESENT);
+        record.setWebAuthnVerified(true);
+        AttendanceRecord saved = attendanceRecordRepository.save(record);
+        log.info("Attendance biometric confirmed: sessionPublicId={}, studentPublicId={}",
+                record.getSession().getPublicId(), student.getPublicId());
         return toResponse(saved);
+    }
+
+    private AttendanceRecord pendingRecord(UUID recordPublicId, User student) {
+        AttendanceRecord record = attendanceRecordRepository.findByPublicIdAndStudent(recordPublicId, student)
+                .orElseThrow(() -> new ResourceNotFoundException("Attendance record not found: " + recordPublicId));
+        if (record.getStatus() != AttendanceStatus.PENDING_BIOMETRIC) {
+            throw new IllegalArgumentException("This check-in is not awaiting biometric confirmation");
+        }
+        Session session = record.getSession();
+        checkInBiometricService.requireWithinGrace(session.isCurrentlyOpen(), session.getClosedAt(), session.getExpiresAt());
+        return record;
+    }
+
+    private BiometricChallenge biometricChallenge(AttendanceRecord record, User student) {
+        return checkInBiometricService.challenge(challengeKey(record), student);
+    }
+
+    private static String challengeKey(AttendanceRecord record) {
+        return "attendance:session:" + record.getPublicId();
     }
 
     // PRD Section 6.6 — manual override, distinct code path from normal
@@ -101,6 +158,10 @@ public class AttendanceRecordService {
         if (!caller.hasRole(Role.SUPER_ADMIN)
                 && !session.getFacilitator().getId().equals(caller.getId())) {
             throw new AccessDeniedException("Only the facilitator who opened this session or a SUPER_ADMIN may override attendance");
+        }
+
+        if (!request.getStatus().isOverrideOutcome()) {
+            throw new IllegalArgumentException("Status must be PRESENT, LATE or ABSENT");
         }
 
         User student = userService.findEntityByPublicId(studentPublicId);
@@ -165,6 +226,10 @@ public class AttendanceRecordService {
     }
 
     private AttendanceRecordResponse toResponse(AttendanceRecord record) {
+        return toResponse(record, null);
+    }
+
+    private AttendanceRecordResponse toResponse(AttendanceRecord record, BiometricChallenge biometric) {
         return AttendanceRecordResponse.builder()
                 .publicId(record.getPublicId())
                 .sessionPublicId(record.getSession().getPublicId())
@@ -172,6 +237,8 @@ public class AttendanceRecordService {
                 .status(record.getStatus())
                 .verificationMethod(record.getVerificationMethod())
                 .submittedAt(record.getSubmittedAt())
+                .webAuthnVerified(record.getWebAuthnVerified())
+                .biometric(biometric)
                 .build();
     }
 }

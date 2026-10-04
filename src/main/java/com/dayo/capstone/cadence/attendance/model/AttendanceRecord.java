@@ -40,4 +40,10 @@ public class  AttendanceRecord extends BaseEntity {
 
     @Column(name = "override_reason")
     private String overrideReason;
+
+    // PRD Section 6.12: null when biometric confirmation wasn't required
+    // (webAuthnCapable = false); false while pending or after a failed or
+    // abandoned confirmation; true only after a verified on-device assertion.
+    @Column(name = "web_authn_verified")
+    private Boolean webAuthnVerified;
 }

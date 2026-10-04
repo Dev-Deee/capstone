@@ -31,6 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Base64;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -146,22 +147,62 @@ public class WebAuthnService {
 
     @Transactional
     public AuthResponse completeAuthentication(WebAuthnAuthenticationRequest request, String userAgent, String ipAddress) {
-        WebAuthnCredential credential = credentialRepository.findByCredentialId(request.getCredentialId())
-                .orElseThrow(() -> new IllegalArgumentException("Unknown credential"));
+        // userVerificationRequired = false, userPresenceRequired = true — matching
+        // the RegistrationParameters used in completeRegistration() exactly.
+        WebAuthnCredential credential = verifyAssertion(request.getCredentialId(), request, false);
 
-        Challenge challenge = pendingChallenges.remove(request.getCredentialId());
+        // JWT issuance is deliberately AFTER verifyAssertion() — a successful
+        // return from it without throwing is the only gate to reaching these lines.
+        // Same session issuance as password login (also persists the refresh
+        // token, which this path previously returned without storing).
+        User user = credential.getUser();
+        log.info("WebAuthn authentication successful: userPublicId={}", user.getPublicId());
+        return sessionTokenService.issue(user, sessionTokenService.defaultInstitutionFor(user), userAgent, ipAddress);
+    }
+
+    // ── Shared with attendance check-in (PRD Section 6.12) ──────────────────
+
+    /** Issues a fresh assertion challenge under {@code key}, replacing any pending one. */
+    public String issueChallenge(String key) {
+        Challenge challenge = new DefaultChallenge();
+        pendingChallenges.put(key, challenge);
+        return Base64UrlUtil.encodeToString(challenge.getValue());
+    }
+
+    public String rpId() {
+        return rpId;
+    }
+
+    /** The credential IDs a user has registered — sent as allowCredentials so the browser only offers this student's keys. */
+    @Transactional(readOnly = true)
+    public List<String> credentialIdsFor(User user) {
+        return credentialRepository.findByUser(user).stream().map(WebAuthnCredential::getCredentialId).toList();
+    }
+
+    /**
+     * Verifies an assertion against the challenge pending under {@code challengeKey}
+     * and returns the credential that signed it. The challenge is single-use: it is
+     * consumed whether or not verification succeeds.
+     *
+     * @param userVerificationRequired true when the authenticator must have verified
+     *        the user locally (fingerprint / Face ID / device PIN), not just seen a tap.
+     * @throws BadCredentialsException on any failure — unknown credential, missing
+     *        challenge, bad signature, wrong challenge/origin, replayed signCount.
+     */
+    @Transactional
+    public WebAuthnCredential verifyAssertion(
+            String challengeKey, WebAuthnAuthenticationRequest request, boolean userVerificationRequired) {
+        Challenge challenge = pendingChallenges.remove(challengeKey);
+        WebAuthnCredential credential = request.getCredentialId() == null ? null
+                : credentialRepository.findByCredentialId(request.getCredentialId()).orElse(null);
+        if (credential == null) {
+            throw new BadCredentialsException("Unknown credential");
+        }
         if (challenge == null) {
-            throw new IllegalArgumentException("No pending authentication challenge — request new options first");
+            throw new BadCredentialsException("No pending challenge — request a new one first");
         }
 
         ServerProperty serverProperty = new ServerProperty(new Origin(origin), rpId, challenge, null);
-
-        AuthenticationRequest webAuthnRequest = new AuthenticationRequest(
-                Base64UrlUtil.decode(request.getCredentialId()),
-                Base64UrlUtil.decode(request.getAuthenticatorData()),
-                Base64UrlUtil.decode(request.getClientDataJSON()),
-                Base64UrlUtil.decode(request.getSignature())
-        );
 
         // Reconstruct AttestedCredentialData from the stored bytes. This is the
         // exact inverse of how completeRegistration() serialized it: the
@@ -169,41 +210,35 @@ public class WebAuthnService {
         // structure that webauthn4j needs for signature verification.
         AttestedCredentialData acd = acdConverter.convert(
                 Base64.getDecoder().decode(credential.getPublicKeyCose()));
-
-        // userVerificationRequired = false, userPresenceRequired = true — matching
-        // the RegistrationParameters used in completeRegistration() exactly.
         AuthenticatorImpl authenticator = new AuthenticatorImpl(acd, null, credential.getSignCount());
         AuthenticationParameters authParams = new AuthenticationParameters(
-                serverProperty, authenticator, false, true);
+                serverProperty, authenticator, userVerificationRequired, true);
 
         // parse() deserializes the wire bytes; validate() performs the actual
-        // cryptographic signature check AND signCount replay-attack check. Both
-        // must succeed before any JWT is issued. validate() throws a subclass of
-        // VerificationException on any failure (bad signature, wrong challenge,
-        // cloned authenticator, etc.).
+        // cryptographic signature check AND signCount replay-attack check.
+        // validate() throws a subclass of VerificationException on any failure
+        // (bad signature, wrong challenge, cloned authenticator, etc.).
         AuthenticationData authData;
         try {
+            AuthenticationRequest webAuthnRequest = new AuthenticationRequest(
+                    Base64UrlUtil.decode(request.getCredentialId()),
+                    Base64UrlUtil.decode(request.getAuthenticatorData()),
+                    Base64UrlUtil.decode(request.getClientDataJSON()),
+                    Base64UrlUtil.decode(request.getSignature())
+            );
             authData = webAuthnManager.parse(webAuthnRequest);
             webAuthnManager.validate(authData, authParams);
-        } catch (VerificationException | DataConversionException e) {
-            log.warn("WebAuthn authentication failed: credentialId={}, reason={}",
+        } catch (VerificationException | DataConversionException | IllegalArgumentException e) {
+            log.warn("WebAuthn assertion failed: credentialId={}, reason={}",
                     request.getCredentialId(), e.getMessage());
             throw new BadCredentialsException("Biometric verification failed");
         }
 
-        // signCount MUST be updated after every successful authentication — the
+        // signCount MUST be updated after every successful assertion — the
         // authenticator increments it on each use, and webauthn4j will reject any
         // future assertion whose signCount is not strictly greater than this stored
         // value (anti-cloning protection, WebAuthn spec §6.1 step 17).
         credential.setSignCount(authData.getAuthenticatorData().getSignCount());
-        credentialRepository.save(credential);
-
-        // JWT issuance is deliberately AFTER validate() — a successful return from
-        // validate() without throwing is the only gate to reaching these lines.
-        // Same session issuance as password login (also persists the refresh
-        // token, which this path previously returned without storing).
-        User user = credential.getUser();
-        log.info("WebAuthn authentication successful: userPublicId={}", user.getPublicId());
-        return sessionTokenService.issue(user, sessionTokenService.defaultInstitutionFor(user), userAgent, ipAddress);
+        return credentialRepository.save(credential);
     }
 }

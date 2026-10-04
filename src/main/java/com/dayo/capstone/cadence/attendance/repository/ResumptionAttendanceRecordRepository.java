@@ -7,11 +7,13 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface ResumptionAttendanceRecordRepository extends JpaRepository<ResumptionAttendanceRecord, Long> {
     Optional<ResumptionAttendanceRecord> findByResumptionSessionAndStudent(
             ResumptionSession resumptionSession, User student);
     List<ResumptionAttendanceRecord> findByResumptionSession(ResumptionSession resumptionSession);
+    Optional<ResumptionAttendanceRecord> findByPublicIdAndStudent(UUID publicId, User student);
 
     @org.springframework.data.jpa.repository.Query(
         "SELECT r FROM ResumptionAttendanceRecord r " +
