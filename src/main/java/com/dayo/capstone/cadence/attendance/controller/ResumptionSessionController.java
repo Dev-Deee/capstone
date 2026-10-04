@@ -73,7 +73,10 @@ public class ResumptionSessionController {
         return ResponseEntity.ok(resumptionSessionService.regenerateCode(publicId, institution));
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN') or isAuthenticated()")
+    // Same people who can open one (see open() below): facilitators, super
+    // admins, and admins holding MANAGE_RESUMPTION_CODES for the cohort.
+    // Facilitators could open a resumption but not close it before.
+    @PreAuthorize("hasRole('FACILITATOR') or hasRole('SUPER_ADMIN') or hasRole('ADMIN')")
     @PatchMapping("/{publicId}/close")
     public ResponseEntity<ResumptionSessionResponse> closeManually(
             @AuthenticationPrincipal CadencePrincipal principal,
@@ -81,9 +84,9 @@ public class ResumptionSessionController {
     ) {
         User caller = userService.findEntityByPublicId(principal.userPublicId());
         Institution institution = institutionService.findEntityByUserPublicId(principal.userPublicId());
-        ResumptionSession session = resumptionSessionService.findEntityByPublicId(publicId);
+        ResumptionSession session = resumptionSessionService.findEntityByPublicIdScopedToInstitution(publicId, institution);
 
-        if (!caller.hasRole(Role.SUPER_ADMIN)) {
+        if (!caller.hasRole(Role.SUPER_ADMIN) && !caller.hasRole(Role.FACILITATOR)) {
             adminPermissionService.requirePermissionForCohort(
                     caller, Permission.MANAGE_RESUMPTION_CODES, session.getCohort());
         }
