@@ -33,6 +33,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.UUID;
+import com.dayo.capstone.cadence.common.event.DomainEvents;
+import com.dayo.capstone.cadence.common.event.AttendanceOverriddenEvent;
 
 @Slf4j
 @Service
@@ -47,6 +49,7 @@ public class AttendanceRecordService {
     private final UserService userService;
     private final AuditLogService auditLogService;
     private final CheckInBiometricService checkInBiometricService;
+    private final DomainEvents domainEvents;
 
     @Transactional
     public AttendanceRecordResponse markAttendance(MarkAttendanceRequest request, User student) {
@@ -185,6 +188,9 @@ public class AttendanceRecordService {
         record.setSubmittedAt(LocalDateTime.now());
         AttendanceRecord saved = attendanceRecordRepository.save(record);
 
+        domainEvents.publish(new AttendanceOverriddenEvent(
+                callerInstitution.getId(), caller.getId(), student.getId(), AttendanceOverriddenEvent.Kind.CLASS,
+                session.getSubject().getName(), session.getCreatedAt().toLocalDate(), saved.getStatus().name()));
         auditLogService.log(caller.getPublicId(), caller.getRoles().toString(), AuditAction.OVERRIDE,
                 "AttendanceRecord", saved.getPublicId(), beforeState,
                 "{\"status\":\"" + saved.getStatus() + "\",\"verificationMethod\":\"MANUAL_OVERRIDE\"}");

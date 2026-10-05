@@ -41,6 +41,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import com.dayo.capstone.cadence.common.event.DomainEvents;
+import com.dayo.capstone.cadence.common.event.AttendanceOverriddenEvent;
 
 @Slf4j
 @Service
@@ -57,6 +59,7 @@ public class ResumptionAttendanceRecordService {
     private final AdminPermissionService adminPermissionService;
     private final AuditLogService auditLogService;
     private final CheckInBiometricService checkInBiometricService;
+    private final DomainEvents domainEvents;
 
     @Transactional
     public ResumptionAttendanceRecordResponse markAttendance(MarkResumptionAttendanceRequest request, User student) {
@@ -288,6 +291,9 @@ public class ResumptionAttendanceRecordService {
         record.setCheckedInAt(LocalDateTime.now());
         ResumptionAttendanceRecord saved = recordRepository.save(record);
 
+        domainEvents.publish(new AttendanceOverriddenEvent(
+                callerInstitution.getId(), caller.getId(), student.getId(), AttendanceOverriddenEvent.Kind.RESUMPTION,
+                "Campus resumption", session.getResumptionDate(), saved.getEffectiveStatus().name()));
         auditLogService.log(caller.getPublicId(), caller.getRoles().toString(), AuditAction.OVERRIDE,
                 "ResumptionAttendanceRecord", saved.getPublicId(), beforeState,
                 "{\"status\":\"" + saved.getStatus() + "\",\"verificationMethod\":\"MANUAL_OVERRIDE\"}");

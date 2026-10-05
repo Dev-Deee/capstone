@@ -39,4 +39,12 @@ public interface MembershipRepository extends JpaRepository<Membership, Long> {
     // Last-SUPER_ADMIN guard: how many active owners an institution has.
     @Query("SELECT COUNT(m) FROM Membership m JOIN m.roles r WHERE m.institution = :institution AND r = :role AND m.isActive = true AND m.user.isDeleted = false")
     long countActiveWithRole(@Param("institution") Institution institution, @Param("role") Role role);
+
+    // Notification recipients: of these users, the ones who can be reached in
+    // this institution — an active membership and an account that isn't deleted.
+    @Query("SELECT m.user.id FROM Membership m WHERE m.institution.id = :institutionId AND m.user.id IN :userIds AND m.isActive = true AND m.user.isDeleted = false")
+    List<Long> findReachableUserIds(@Param("institutionId") Long institutionId, @Param("userIds") java.util.Collection<Long> userIds);
+
+    @Query("SELECT r FROM Membership m JOIN m.roles r WHERE m.user.id = :userId AND m.institution.id = :institutionId")
+    List<Role> findReachableRoles(@Param("userId") Long userId, @Param("institutionId") Long institutionId);
 }

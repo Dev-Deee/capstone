@@ -43,6 +43,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import com.dayo.capstone.cadence.common.event.DomainEvents;
+import com.dayo.capstone.cadence.common.event.InviteAcceptedEvent;
 
 /**
  * Invitations into one institution (multi-tenant replacement for the old
@@ -74,6 +76,7 @@ public class InviteService {
     private final AdminPermissionService adminPermissionService;
     private final CohortService cohortService;
     private final CohortEnrollmentService cohortEnrollmentService;
+    private final DomainEvents domainEvents;
     private final CohortEnrollmentRepository cohortEnrollmentRepository;
     private final EmailService emailService;
     private final JwtService jwtService;
@@ -283,6 +286,9 @@ public class InviteService {
         }
         invite.setUsed(true);
         inviteRepository.save(invite);
+        domainEvents.publish(new InviteAcceptedEvent(institution.getId(), user.getId(),
+                invite.getInvitedBy() == null ? null : invite.getInvitedBy().getId(),
+                user.getPublicId(), user.getFullName(), invite.getRole().name()));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
