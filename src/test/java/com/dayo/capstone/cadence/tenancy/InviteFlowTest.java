@@ -39,7 +39,7 @@ class InviteFlowTest extends IntegrationTestBase {
         m.put("targetRole", role.name());
         m.put("firstName", "New");
         m.put("lastName", "Person");
-        m.put("phoneNumber", "+234" + (System.nanoTime() % 10_000_000_000L));
+        m.put("phoneNumber", "+234" + String.format("%010d", System.nanoTime() % 10_000_000_000L));
         return m;
     }
 
@@ -52,7 +52,7 @@ class InviteFlowTest extends IntegrationTestBase {
         t.setRole(role);
         t.setFirstName("New");
         t.setLastName("Person");
-        t.setPhoneNumber("+234" + (System.nanoTime() % 10_000_000_000L));
+        t.setPhoneNumber("+234" + String.format("%010d", System.nanoTime() % 10_000_000_000L));
         t.setInvitedBy(owner);
         t.setTokenHash(jwtService.hashToken(raw));
         t.setExpiresAt(LocalDateTime.now().plusDays(7));
@@ -136,7 +136,7 @@ class InviteFlowTest extends IntegrationTestBase {
         signup.put("firstName", "Both");
         signup.put("lastName", "Ways");
         signup.put("email", email);
-        signup.put("phoneNumber", "+234" + (System.nanoTime() % 10_000_000_000L));
+        signup.put("phoneNumber", "+234" + String.format("%010d", System.nanoTime() % 10_000_000_000L));
         signup.put("password", PASSWORD);
         signup.put("consentGiven", true);
         Resp founded = call("POST", "/api/institutions/signup", signup, null);

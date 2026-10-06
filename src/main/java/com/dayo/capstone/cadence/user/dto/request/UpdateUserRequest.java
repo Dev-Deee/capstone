@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
+import com.dayo.capstone.cadence.common.validation.ValidPhone;
 
 // Admin edit of another user's profile details. Email has its own audited
 // endpoint (PATCH /api/auth/{id}/email) because changing it signs the user out.
@@ -21,7 +22,7 @@ public class UpdateUserRequest {
     @Size(max = 100)
     private String lastName;
 
-    @Size(max = 30)
+    @ValidPhone
     private String phoneNumber;
 
     @Size(max = 50)

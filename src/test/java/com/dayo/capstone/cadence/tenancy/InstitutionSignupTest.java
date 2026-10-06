@@ -22,7 +22,7 @@ class InstitutionSignupTest extends IntegrationTestBase {
         m.put("firstName", "Ada");
         m.put("lastName", "Founder");
         m.put("email", email);
-        m.put("phoneNumber", "+234" + (System.nanoTime() % 10_000_000_000L));
+        m.put("phoneNumber", "+234" + String.format("%010d", System.nanoTime() % 10_000_000_000L));
         m.put("password", PASSWORD);
         m.put("consentGiven", true);
         return m;

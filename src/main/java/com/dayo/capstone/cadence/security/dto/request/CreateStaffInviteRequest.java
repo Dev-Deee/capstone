@@ -1,11 +1,12 @@
 package com.dayo.capstone.cadence.security.dto.request;
 
 import com.dayo.capstone.cadence.user.enums.Role;
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
+import com.dayo.capstone.cadence.common.validation.ValidPhone;
+import com.dayo.capstone.cadence.common.validation.ValidEmail;
 
 @Getter
 @Setter
@@ -16,8 +17,9 @@ public class CreateStaffInviteRequest {
     private String lastName;
 
     @NotBlank(message = "Email is required")
-    @Email(message = "Email must be valid")
+    @ValidEmail
     private String email;
+    @ValidPhone
     private String phoneNumber;
 
     @NotNull(message = "Target role is required")

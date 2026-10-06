@@ -1,10 +1,12 @@
 package com.dayo.capstone.cadence.security.dto.request;
 
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
+import com.dayo.capstone.cadence.common.validation.StrongPassword;
+import com.dayo.capstone.cadence.common.validation.ValidPhone;
+import com.dayo.capstone.cadence.common.validation.ValidEmail;
 
 @Getter
 @Setter
@@ -21,10 +23,11 @@ public class RegisterRequest {
     private String lastName;
 
     @NotBlank(message = "Email is required")
-    @Email(message = "Email must be valid")
+    @ValidEmail
     private String email;
 
     @NotBlank(message = "Phone number is required")
+    @ValidPhone
     private String phoneNumber;
 
     // RegisterRequest.java — add
@@ -35,6 +38,7 @@ public class RegisterRequest {
     // scheme, not ours to enforce)
 
     @NotBlank(message = "Password is required")
+    @StrongPassword
     private String password;
 
     @NotNull(message = "Consent must be explicitly given")
