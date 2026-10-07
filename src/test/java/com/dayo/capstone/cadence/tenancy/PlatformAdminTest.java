@@ -55,7 +55,7 @@ class PlatformAdminTest extends IntegrationTestBase {
         Resp r = call("POST", "/api/institutions/signup", Map.of(
                 "institutionName", "Self Serve U", "slug", unique("self-serve"),
                 "firstName", "Founder", "lastName", "One", "email", unique("founder") + "@test.cadence",
-                "phoneNumber", "+234" + System.nanoTime() % 10_000_000_000L, "password", PASSWORD, "consentGiven", true), null);
+                "phoneNumber", "+234" + String.format("%010d", System.nanoTime() % 10_000_000_000L), "password", PASSWORD, "consentGiven", true), null);
         assertThat(r.status()).isEqualTo(201);
         assertThat(r.body().get("platformAdmin").asBoolean()).isFalse();
     }

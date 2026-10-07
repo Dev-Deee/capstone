@@ -11,16 +11,6 @@ import lombok.Setter;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * A user's place in one institution. Cadence is multi-tenant: one User can
- * belong to (and own) several institutions, with different roles in each.
- * Roles are a set, as they were on User, because PRD Section 3 lets one person
- * hold several at once (e.g. FACILITATOR + ADMIN). SUPER_ADMIN here means owner
- * of THIS institution only; platform-wide reach is User.isPlatformAdmin.
- *
- * isActive is per institution: an admin suspending someone here must not lock
- * them out of the other institutions they belong to.
- */
 @Entity
 @Table(name = "membership", uniqueConstraints = {
         @UniqueConstraint(columnNames = {"user_id", "institution_id"})

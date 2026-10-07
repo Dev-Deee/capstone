@@ -26,7 +26,7 @@ public class UserAdminRoleAssignment extends BaseEntity {
     private AdminRole adminRole;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "cohort_id") // nullable = institution-wide
+    @JoinColumn(name = "cohort_id")
     private Cohort cohort;
 
     @Column(name = "assigned_at", nullable = false)

@@ -39,19 +39,30 @@ public class SessionTokenService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final UserRepository userRepository;
 
-    /** Where a fresh login lands: the last institution used, else the oldest membership. */
+    static final String UNAVAILABLE = "This institution isn't available right now.";
+
+    /**
+     * Where a fresh login lands: the last institution used, else the oldest
+     * membership — only among usable (ACTIVE) institutions. Someone whose
+     * every institution is pending or suspended can't sign in; a platform
+     * admin always can.
+     */
     public Institution defaultInstitutionFor(User user) {
         Institution last = user.getLastActiveInstitution();
-        if (last != null && activeMembership(user, last) != null) {
+        if (last != null && last.isUsable() && activeMembership(user, last) != null) {
             return last;
         }
+        boolean anyMembership = user.getMemberships().stream().anyMatch(Membership::isActive);
         Institution first = user.getMemberships().stream()
                 .filter(Membership::isActive)
+                .filter(m -> m.getInstitution().isUsable())
                 .min(Comparator.comparing(Membership::getCreatedAt))
                 .map(Membership::getInstitution)
                 .orElse(null);
         if (first == null && !user.isPlatformAdmin()) {
-            throw new BadCredentialsException("Your account isn't part of any institution yet.");
+            throw new BadCredentialsException(anyMembership
+                    ? UNAVAILABLE + " Contact your institution or Cadence support."
+                    : "Your account isn't part of any institution yet.");
         }
         return first;
     }
@@ -124,6 +135,11 @@ public class SessionTokenService {
                 throw new AccessDeniedException("Choose an institution you belong to");
             }
             return Set.of();
+        }
+        // Pending or suspended: closed to members (sign-in, switching in,
+        // accepting an invite, refreshing a session); a platform admin keeps access.
+        if (!institution.isUsable() && !user.isPlatformAdmin()) {
+            throw new AccessDeniedException(UNAVAILABLE);
         }
         Membership membership = activeMembership(user, institution);
         if (membership != null) {

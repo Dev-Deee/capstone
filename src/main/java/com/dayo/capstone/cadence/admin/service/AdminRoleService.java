@@ -82,8 +82,6 @@ public class AdminRoleService {
     }
 
     @Transactional
-    // Multi-tenant: the user must be a member of the caller's institution and the
-    // AdminRole and cohort must belong to it — a grant can never reach across tenants.
     public void assign(AssignAdminRoleRequest request, Institution callerInstitution) {
         User user = userService.findEntityByPublicId(UUID.fromString(request.getUserPublicId()));
         if (!user.isMemberOf(callerInstitution.getId())) {

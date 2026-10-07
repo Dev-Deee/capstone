@@ -19,7 +19,6 @@ public record InstitutionResponse(
         String slug,
         InstitutionStatus status,
         String address,
-        boolean isActive,
         GuardianLinkageMode guardianLinkageMode,
         GuardianNotificationDefault guardianNotificationDefault,
         LocalDateTime createdAt

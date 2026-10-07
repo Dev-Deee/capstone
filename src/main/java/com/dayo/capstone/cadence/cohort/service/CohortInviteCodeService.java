@@ -189,7 +189,7 @@ public class CohortInviteCodeService {
         if (!invite.getCohort().isActive()) {
             throw new IllegalArgumentException("This cohort is no longer active");
         }
-        if (!invite.getCohort().getInstitution().isActive()) {
+        if (!invite.getCohort().getInstitution().isUsable()) {
             throw new IllegalArgumentException("This institution is no longer active");
         }
         return invite;
