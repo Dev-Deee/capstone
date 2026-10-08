@@ -30,6 +30,7 @@ class EmailTransportTest {
     private final AtomicReference<JsonNode> body = new AtomicReference<>();
     private volatile int status = 201;
     private volatile long delayMs = 0;
+    private volatile String responseBody = "{}";
 
     @BeforeEach
     void start() throws IOException {
@@ -40,7 +41,7 @@ class EmailTransportTest {
             auth.set(a != null ? "api-key " + a : exchange.getRequestHeaders().getFirst("Authorization"));
             body.set(new ObjectMapper().readTree(exchange.getRequestBody().readAllBytes()));
             try { Thread.sleep(delayMs); } catch (InterruptedException ignored) { }
-            byte[] out = "{}".getBytes(StandardCharsets.UTF_8);
+            byte[] out = responseBody.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(status, out.length);
             exchange.getResponseBody().write(out);
             exchange.close();
@@ -112,5 +113,34 @@ class EmailTransportTest {
         assertThatThrownBy(() -> sender.send(message))
                 .isInstanceOf(EmailSendException.class)
                 .hasMessageContaining("brevo-api");
+    }
+
+    @Test
+    void mailjetSendsTheExpectedRequestWithBasicAuth() throws Exception {
+        status = 200;
+        responseBody = "{\"Messages\":[{\"Status\":\"success\",\"To\":[{\"Email\":\"ada@example.com\"}]}]}";
+        new MailjetApiEmailSender(base(), "public-key", "secret-key", "noreply@cadence.test", "Cadence", Duration.ofSeconds(2))
+                .send(message);
+        assertThat(path.get()).isEqualTo("/v3.1/send");
+        String expected = "Basic " + java.util.Base64.getEncoder()
+                .encodeToString("public-key:secret-key".getBytes(StandardCharsets.UTF_8));
+        assertThat(auth.get()).isEqualTo(expected);
+        JsonNode msg = body.get().at("/Messages/0");
+        assertThat(msg.at("/From/Email").asText()).isEqualTo("noreply@cadence.test");
+        assertThat(msg.at("/From/Name").asText()).isEqualTo("Cadence");
+        assertThat(msg.at("/To/0/Email").asText()).isEqualTo("ada@example.com");
+        assertThat(msg.get("Subject").asText()).isEqualTo("Hello");
+        assertThat(msg.get("TextPart").asText()).isEqualTo("Body text");
+    }
+
+    @Test
+    void aMailjetPerMessageErrorFailsTheSendEvenWithA200() {
+        status = 200;
+        responseBody = "{\"Messages\":[{\"Status\":\"error\",\"Errors\":[{\"ErrorMessage\":\"sender not validated\"}]}]}";
+        HttpApiEmailSender sender = new MailjetApiEmailSender(base(), "k", "s", "a@b.test", "C", Duration.ofSeconds(2));
+        assertThatThrownBy(() -> sender.send(message))
+                .isInstanceOf(EmailSendException.class)
+                .hasMessageContaining("status error")
+                .satisfies(e -> assertThat(((EmailSendException) e).isRetryable()).isFalse());
     }
 }

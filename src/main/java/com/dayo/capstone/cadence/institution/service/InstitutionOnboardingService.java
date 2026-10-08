@@ -28,15 +28,6 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/**
- * Self-serve institution sign-up. Instant — no approval gate — and whoever
- * founds an institution becomes its SUPER_ADMIN (owner of that institution
- * only; platform-wide reach is never granted here).
- *
- * Slugs: chosen by the founder, validated, and immutable afterwards. A taken
- * slug is rejected with a clear message and a free suggestion — never silently
- * altered and never surfaced as a raw database error.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
