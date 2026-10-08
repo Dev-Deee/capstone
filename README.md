@@ -14,6 +14,16 @@ Configuration comes from environment variables (a local `.env` is fine). Schema 
 `ddl-auto=update` can't make on its own (CHECK constraints) are in `docker/migrations/` — apply
 them to every existing database.
 
+### Seeded accounts
+
+On startup, two accounts are created if they don't already exist. Once an account exists its password
+isn't touched, so a password changed in the app stays changed.
+
+| Variables | Account |
+|---|---|
+| `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` | Owner (SUPER_ADMIN) of the seed institution, Semicolon Africa |
+| `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD` | The Cadence platform admin: the platform console and every institution. Belongs to no institution. Skipped if the email is blank. |
+
 ---
 
 ## Notifications
