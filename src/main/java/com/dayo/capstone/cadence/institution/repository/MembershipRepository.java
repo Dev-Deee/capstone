@@ -28,4 +28,12 @@ public interface MembershipRepository extends JpaRepository<Membership, Long> {
     List<Long> findReachableUserIds(@Param("institutionId") Long institutionId, @Param("userIds") java.util.Collection<Long> userIds);
     @Query("SELECT r FROM Membership m JOIN m.roles r WHERE m.user.id = :userId AND m.institution.id = :institutionId")
     List<Role> findReachableRoles(@Param("userId") Long userId, @Param("institutionId") Long institutionId);
+
+    // Platform console: active members per institution, as [institutionId, count] rows.
+    @Query("SELECT m.institution.id, COUNT(m) FROM Membership m WHERE m.isActive = true AND m.user.isDeleted = false GROUP BY m.institution.id")
+    List<Object[]> countActiveMembersByInstitution();
+
+    // Platform console: every institution's active owners, oldest first.
+    @Query("SELECT m FROM Membership m JOIN FETCH m.user JOIN m.roles r WHERE r = :role AND m.isActive = true AND m.user.isDeleted = false ORDER BY m.createdAt ASC")
+    List<Membership> findActiveWithRole(@Param("role") Role role);
 }
