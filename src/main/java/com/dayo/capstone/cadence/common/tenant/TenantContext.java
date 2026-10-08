@@ -10,14 +10,12 @@ import java.util.UUID;
  * answer for this institution only, and InstitutionService resolves "the
  * caller's institution" from it. A SUPER_ADMIN is therefore only ever a
  * super admin of the institution in context — never of another tenant.
- *
- * platformAdminActing is true only when a platform admin has entered an
- * institution they are not otherwise a member of; it is the one path with
- * cross-institution reach, and it is granted only at token issuance.
+ * There is no cross-institution scope: a platform admin acts in an
+ * institution only through a membership, like anyone else.
  */
 public final class TenantContext {
 
-    public record Scope(UUID userPublicId, Long institutionId, UUID institutionPublicId, boolean platformAdminActing) {}
+    public record Scope(UUID userPublicId, Long institutionId, UUID institutionPublicId) {}
 
     private static final ThreadLocal<Scope> CURRENT = new ThreadLocal<>();
 
@@ -37,11 +35,5 @@ public final class TenantContext {
     public static UUID institutionPublicId() {
         Scope s = CURRENT.get();
         return s == null ? null : s.institutionPublicId();
-    }
-
-    /** True only for the given user, when they are a platform admin acting inside the current institution. */
-    public static boolean isPlatformAdminActing(UUID userPublicId) {
-        Scope s = CURRENT.get();
-        return s != null && s.platformAdminActing() && s.userPublicId().equals(userPublicId);
     }
 }

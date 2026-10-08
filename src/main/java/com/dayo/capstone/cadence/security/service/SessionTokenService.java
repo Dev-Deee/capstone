@@ -45,7 +45,7 @@ public class SessionTokenService {
      * Where a fresh login lands: the last institution used, else the oldest
      * membership — only among usable (ACTIVE) institutions. Someone whose
      * every institution is pending or suspended can't sign in; a platform
-     * admin always can.
+     * admin always can, into the platform console (no institution).
      */
     public Institution defaultInstitutionFor(User user) {
         Institution last = user.getLastActiveInstitution();
@@ -126,8 +126,9 @@ public class SessionTokenService {
 
     /**
      * The caller's roles in the given institution: their active membership's
-     * roles, or SUPER_ADMIN for a platform admin entering an institution they
-     * don't belong to. Anyone else is refused — this is the tenant boundary.
+     * roles. Anyone without one is refused — platform admins included; this is
+     * the tenant boundary. Only a platform admin may hold a session in no
+     * institution (the platform console).
      */
     public Set<String> rolesIn(User user, Institution institution) {
         if (institution == null) {
@@ -137,16 +138,13 @@ public class SessionTokenService {
             return Set.of();
         }
         // Pending or suspended: closed to members (sign-in, switching in,
-        // accepting an invite, refreshing a session); a platform admin keeps access.
-        if (!institution.isUsable() && !user.isPlatformAdmin()) {
+        // accepting an invite, refreshing a session).
+        if (!institution.isUsable()) {
             throw new AccessDeniedException(UNAVAILABLE);
         }
         Membership membership = activeMembership(user, institution);
         if (membership != null) {
             return membership.getRoles().stream().map(Role::name).collect(Collectors.toCollection(TreeSet::new));
-        }
-        if (user.isPlatformAdmin()) {
-            return Set.of(Role.SUPER_ADMIN.name());
         }
         throw new AccessDeniedException("You are not a member of this institution");
     }

@@ -2,11 +2,8 @@ package com.dayo.capstone.cadence.security;
 
 import com.dayo.capstone.cadence.security.repository.BlacklistedTokenRepository;
 import com.dayo.capstone.cadence.common.tenant.TenantContext;
-import com.dayo.capstone.cadence.institution.model.Institution;
 import com.dayo.capstone.cadence.institution.model.Membership;
-import com.dayo.capstone.cadence.institution.repository.InstitutionRepository;
 import com.dayo.capstone.cadence.institution.repository.MembershipRepository;
-import com.dayo.capstone.cadence.user.enums.Role;
 import com.dayo.capstone.cadence.user.model.User;
 import com.dayo.capstone.cadence.user.repository.UserRepository;
 import com.dayo.capstone.cadence.security.service.JwtService;
@@ -41,7 +38,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private final BlacklistedTokenRepository blacklistedTokenRepository;
     private final UserRepository userRepository;
     private final MembershipRepository membershipRepository;
-    private final InstitutionRepository institutionRepository;
 
     @Override
     protected void doFilterInternal(
@@ -86,19 +82,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
             // Tenant scope. The token names the institution; the caller's roles
             // there are read fresh from their Membership, so demotion, suspension
-            // or removal applies on the very next request. A platform admin is the
-            // only caller who may act in an institution without a membership.
+            // or removal applies on the very next request. Nobody acts in an
+            // institution without a membership — platform admins included.
             String inst = claims.get("inst", String.class);
             Set<String> roles = new HashSet<>();
             Long institutionId = null;
             UUID institutionPublicId = null;
-            boolean platformAdminActing = false;
             if (inst != null) {
                 institutionPublicId = UUID.fromString(inst);
                 Optional<Membership> membership = membershipRepository
                         .findByUserPublicIdAndInstitutionPublicId(userPublicId, institutionPublicId)
                         .filter(Membership::isActive);
-                if (membership.isPresent() && !membership.get().getInstitution().isUsable() && !user.isPlatformAdmin()) {
+                if (membership.isPresent() && !membership.get().getInstitution().isUsable()) {
                     // Pending or suspended since this token was issued: the caller stays
                     // signed in but acts in no institution — they can switch to another
                     // or sign out, and nothing here is reachable.
@@ -108,13 +103,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 } else if (membership.isPresent()) {
                     institutionId = membership.get().getInstitution().getId();
                     membership.get().getRoles().forEach(r -> roles.add(r.name()));
-                } else if (user.isPlatformAdmin()) {
-                    institutionId = institutionRepository.findByPublicId(institutionPublicId)
-                            .map(Institution::getId).orElse(null);
-                    if (institutionId != null) {
-                        roles.add(Role.SUPER_ADMIN.name());
-                        platformAdminActing = true;
-                    }
                 }
                 if (institutionId == null && institutionPublicId != null) {
                     log.warn("Rejected token for an institution the user no longer belongs to: userPublicId={}, institution={}",
@@ -135,7 +123,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
             JwtAuthenticationToken authToken = new JwtAuthenticationToken(principal, authorities);
             SecurityContextHolder.getContext().setAuthentication(authToken);
-            TenantContext.set(new TenantContext.Scope(userPublicId, institutionId, institutionPublicId, platformAdminActing));
+            TenantContext.set(new TenantContext.Scope(userPublicId, institutionId, institutionPublicId));
         } catch (Exception e) {
             log.warn("JWT verification failed: {}", e.getMessage());
             SecurityContextHolder.clearContext();
