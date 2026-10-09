@@ -41,13 +41,13 @@ public class Institution extends BaseEntity {
     private Integer resumptionWindowMinutes = 90;
 
     /**
-     * The one rule for whether an institution can be used: its status is
-     * ACTIVE. PENDING and SUSPENDED institutions can't be signed into, switched
-     * into or joined, and open sessions lose their scope there — except for a
-     * platform admin, who keeps full reach (see SessionTokenService.rolesIn
-     * and JwtAuthFilter).
+     * The one rule for whether an institution can be used: it isn't SUSPENDED.
+     * ACTIVE and PENDING institutions work normally. A SUSPENDED one can't be
+     * signed into, switched into or joined, and open sessions lose their scope
+     * there — for everyone, platform admins included (see
+     * SessionTokenService.rolesIn and JwtAuthFilter).
      */
     public boolean isUsable() {
-        return status == InstitutionStatus.ACTIVE;
+        return status != InstitutionStatus.SUSPENDED;
     }
 }
