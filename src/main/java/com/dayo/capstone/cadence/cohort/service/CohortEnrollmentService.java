@@ -22,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import com.dayo.capstone.cadence.common.event.DomainEvents;
+import com.dayo.capstone.cadence.common.event.StudentCohortChangedEvent;
 
 @Slf4j
 @Service
@@ -33,6 +35,7 @@ public class CohortEnrollmentService {
     private final SubmissionRepository submissionRepository;
     private final AdminPermissionService adminPermissionService;
     private final AuditLogService auditLogService;
+    private final DomainEvents domainEvents;
 
     // Single entry point for "put a NEW student in this cohort" — used by
     // self-registration (AuthService) and invite-code join (both of which
@@ -96,6 +99,8 @@ public class CohortEnrollmentService {
         CohortEnrollment saved = cohortEnrollmentRepository.save(enrollment);
         backfillOpenAssignments(student, target);
 
+        domainEvents.publish(new StudentCohortChangedEvent(target.getInstitution().getId(), caller.getId(),
+                student.getId(), fromCohort, target.getName(), target.getPublicId()));
         auditLogService.log(caller.getPublicId(), caller.getRoles().toString(), AuditAction.UPDATE,
                 "CohortEnrollment", saved.getPublicId(),
                 fromCohort == null ? null : "{\"cohort\":" + json(fromCohort) + "}",

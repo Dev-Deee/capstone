@@ -16,15 +16,17 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * microservices later without a rewrite, once they mature and need
  * independent scaling.
  *
- * @EnableScheduling powers the platform's background jobs:
- *   - AssignmentDeadlineEnforcementJob (Section 7)
- *   - AttendancePatternDetectionJob (Section 6, 13.3)
- *   - GpsRetentionPurgeJob (Section 9)
- *   - LearnerInferenceJob (Section 13.3)
+ * @EnableScheduling powers the background jobs that exist today:
+ *   - AssignmentDeadlineEnforcementJob (Section 7) — marks overdue work missing
+ *   - AssignmentPublishJob — publishes scheduled ("publish later") assignments
+ *   - TokenCleanupJob — purges expired refresh and blacklisted tokens
+ *   - NotificationCleanupJob (Section 18.9) — purges read notifications after 180 days
  *
- * @EnableAsync supports the event-driven notification backbone (Section 12):
- *   domain events fan out to NotificationListener, CohortEventListener,
- *   and AuditLogListener independently via Spring's ApplicationEventPublisher.
+ * @EnableAsync runs the event-driven notification backbone (Section 12):
+ *   producers publish domain events (common.event) through DomainEvents;
+ *   NotificationListener turns them into in-app notifications after commit,
+ *   on the eventExecutor. Outgoing email runs on the mailExecutor (AsyncConfig).
+ *   Audit logging is still written directly by services, not via events.
  */
 @SpringBootApplication(exclude = { UserDetailsServiceAutoConfiguration.class })
 
