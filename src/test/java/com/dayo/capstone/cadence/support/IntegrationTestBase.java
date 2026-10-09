@@ -111,7 +111,7 @@ public abstract class IntegrationTestBase {
         u.setFirstName(label);
         u.setLastName("Tester");
         u.setEmail(unique(label).toLowerCase() + "@test.cadence");
-        u.setPhoneNumber("+234" + (long) (Math.random() * 1_000_000_0000L));
+        u.setPhoneNumber("+234" + String.format("%010d", (long) (Math.random() * 1_000_000_0000L)));
         u.setPasswordHash(passwordEncoder.encode(PASSWORD));
         u.setEmailVerified(true);
         u.setAccountPending(false);

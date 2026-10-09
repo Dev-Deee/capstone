@@ -7,6 +7,7 @@ import com.dayo.capstone.cadence.cohort.dto.response.CohortResponse;
 import com.dayo.capstone.cadence.cohort.dto.response.InviteCodeResponse;
 import com.dayo.capstone.cadence.cohort.dto.response.InviteCodeSendResult;
 import com.dayo.capstone.cadence.cohort.model.Cohort;
+import com.dayo.capstone.cadence.common.validation.ValidationPatterns;
 import com.dayo.capstone.cadence.cohort.model.CohortEnrollment;
 import com.dayo.capstone.cadence.cohort.model.CohortInviteCode;
 import com.dayo.capstone.cadence.cohort.repository.CohortEnrollmentRepository;
@@ -35,7 +36,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -43,7 +43,6 @@ import java.util.regex.Pattern;
 public class CohortInviteCodeService {
 
     private static final String CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no O/0/I/1 — avoids ambiguity when read aloud or handwritten
-    private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final DateTimeFormatter EXPIRY_FORMAT = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH);
 
     private final CohortInviteCodeRepository inviteCodeRepository;
@@ -106,9 +105,14 @@ public class CohortInviteCodeService {
         }
 
         List<String> emails = clean(request.getEmails());
-        List<String> phones = clean(request.getPhoneNumbers());
-        emails.stream().filter(e -> !EMAIL.matcher(e).matches()).findFirst().ifPresent(bad -> {
-            throw new IllegalArgumentException("Invalid email address: " + bad);
+        // Phones arrive as typed: spaces, dashes, brackets and dots are dropped first.
+        List<String> phones = clean(request.getPhoneNumbers()).stream()
+                .map(p -> p.replaceAll("[\\s().-]", "")).toList();
+        emails.stream().filter(e -> !ValidationPatterns.isEmail(e)).findFirst().ifPresent(bad -> {
+            throw new IllegalArgumentException("Invalid email address: " + bad + ". " + ValidationPatterns.EMAIL_MESSAGE);
+        });
+        phones.stream().filter(p -> !ValidationPatterns.isPhone(p)).findFirst().ifPresent(bad -> {
+            throw new IllegalArgumentException("Invalid phone number: " + bad + ". " + ValidationPatterns.PHONE_MESSAGE);
         });
         if (emails.isEmpty() && phones.isEmpty()) {
             throw new IllegalArgumentException("Add at least one email address or phone number");
