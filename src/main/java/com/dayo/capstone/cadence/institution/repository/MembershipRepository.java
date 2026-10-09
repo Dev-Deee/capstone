@@ -28,7 +28,8 @@ public interface MembershipRepository extends JpaRepository<Membership, Long> {
     // Used by JwtAuthFilter on every request: the caller's roles in the
     // institution named by their token, straight from the database, so a
     // demotion or suspension takes effect immediately.
-    @Query("SELECT m FROM Membership m WHERE m.user.publicId = :userPublicId AND m.institution.publicId = :institutionPublicId")
+    // Fetches the institution too: the filter checks its status outside any transaction.
+    @Query("SELECT m FROM Membership m JOIN FETCH m.institution WHERE m.user.publicId = :userPublicId AND m.institution.publicId = :institutionPublicId")
     Optional<Membership> findByUserPublicIdAndInstitutionPublicId(
             @Param("userPublicId") UUID userPublicId,
             @Param("institutionPublicId") UUID institutionPublicId);

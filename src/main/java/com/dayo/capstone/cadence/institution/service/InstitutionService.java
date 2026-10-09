@@ -21,14 +21,11 @@ public class InstitutionService {
 
     private final InstitutionRepository institutionRepository;
 
-    // Every lookup from outside this service uses publicId — never the
-    // internal Long id.
     @Transactional(readOnly = true)
     public InstitutionResponse getByPublicId(UUID publicId) {
         return toResponse(findEntityByPublicId(publicId));
     }
 
-    // Platform-admin only (enforced in the controller): every tenant.
     @Transactional(readOnly = true)
     public List<InstitutionResponse> getAll() {
         return institutionRepository.findAll().stream()
@@ -36,21 +33,11 @@ public class InstitutionService {
                 .toList();
     }
 
-    // Unscoped lookup — for platform-level code and for resolving the
-    // institution named in a token or invite. Tenant-facing code should use
-    // findEntityByUserPublicId (the caller's current institution) instead.
     public Institution findEntityByPublicId(UUID publicId) {
         return institutionRepository.findByPublicId(publicId)
                 .orElseThrow(() -> new ResourceNotFoundException("Institution not found: " + publicId));
     }
 
-    /**
-     * The institution the current request is acting in. Multi-tenant: this is
-     * the institution named in the caller's access token (TenantContext), which
-     * JwtAuthFilter has already confirmed they are a member of — or, for a
-     * platform admin, explicitly entered. The userPublicId parameter must be the
-     * caller; it is kept so the many existing call sites read unchanged.
-     */
     @Transactional(readOnly = true)
     public Institution findEntityByUserPublicId(UUID userPublicId) {
         TenantContext.Scope scope = TenantContext.get();
@@ -71,7 +58,6 @@ public class InstitutionService {
                 .slug(institution.getSlug())
                 .status(institution.getStatus())
                 .address(institution.getAddress())
-                .isActive(institution.isActive())
                 .guardianLinkageMode(institution.getGuardianLinkageMode())
                 .guardianNotificationDefault(institution.getGuardianNotificationDefault())
                 .createdAt(institution.getCreatedAt())

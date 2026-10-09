@@ -13,15 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/**
- * Granular admin permissions (AdminRole + UserAdminRoleAssignment).
- *
- * Multi-tenant: only grants from the institution the current request acts in
- * count. A user can hold admin roles in several institutions; a MANAGE_COHORTS
- * grant in institution A must never apply while they work in institution B —
- * including an institution-wide grant (assignment.cohort == null), which covers
- * every cohort of ITS institution only.
- */
 @Service
 @RequiredArgsConstructor
 public class AdminPermissionService {
@@ -55,7 +46,6 @@ public class AdminPermissionService {
         }
     }
 
-    /** The user's active, active-role grants whose AdminRole belongs to the institution in context. */
     @Transactional(readOnly = true)
     public List<UserAdminRoleAssignment> activeGrantsInCurrentInstitution(User user) {
         Long institutionId = TenantContext.institutionId();

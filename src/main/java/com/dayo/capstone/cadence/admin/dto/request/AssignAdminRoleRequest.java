@@ -13,5 +13,5 @@ public class AssignAdminRoleRequest {
     @NotBlank(message = "Admin role public ID is required")
     private String adminRolePublicId;
 
-    private String cohortPublicId; // nullable — omit for institution-wide
+    private String cohortPublicId;
 }

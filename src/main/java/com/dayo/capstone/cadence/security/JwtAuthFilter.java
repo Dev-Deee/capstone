@@ -98,7 +98,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 Optional<Membership> membership = membershipRepository
                         .findByUserPublicIdAndInstitutionPublicId(userPublicId, institutionPublicId)
                         .filter(Membership::isActive);
-                if (membership.isPresent()) {
+                if (membership.isPresent() && !membership.get().getInstitution().isUsable() && !user.isPlatformAdmin()) {
+                    // Pending or suspended since this token was issued: the caller stays
+                    // signed in but acts in no institution — they can switch to another
+                    // or sign out, and nothing here is reachable.
+                    log.warn("Request in an unavailable institution: userPublicId={}, institution={}, status={}",
+                            userPublicId, inst, membership.get().getInstitution().getStatus());
+                    institutionPublicId = null;
+                } else if (membership.isPresent()) {
                     institutionId = membership.get().getInstitution().getId();
                     membership.get().getRoles().forEach(r -> roles.add(r.name()));
                 } else if (user.isPlatformAdmin()) {
@@ -109,7 +116,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         platformAdminActing = true;
                     }
                 }
-                if (institutionId == null) {
+                if (institutionId == null && institutionPublicId != null) {
                     log.warn("Rejected token for an institution the user no longer belongs to: userPublicId={}, institution={}",
                             userPublicId, inst);
                     SecurityContextHolder.clearContext();

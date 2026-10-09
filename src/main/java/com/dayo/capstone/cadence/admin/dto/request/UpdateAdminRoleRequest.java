@@ -10,6 +10,6 @@ import java.util.Set;
 public class UpdateAdminRoleRequest {
     private String name;
     private String description;
-    private Set<String> permissions; // null = leave unchanged; empty set = clear all
+    private Set<String> permissions;
     private Boolean isActive;
 }
