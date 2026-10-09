@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Institution.status is the only switch: ACTIVE institutions work; PENDING and
  * SUSPENDED ones are closed to their members — sign-in, switching in, joining,
- * existing sessions and refresh — while a platform admin keeps full access.
+ * existing sessions and refresh — platform admins included.
  */
 class InstitutionStatusTest extends IntegrationTestBase {
 
@@ -112,24 +112,18 @@ class InstitutionStatusTest extends IntegrationTestBase {
     }
 
     @Test
-    void platformAdminKeepsFullAccessToUnusableInstitutions() {
+    void aSuspendedInstitutionIsClosedToAPlatformAdminMemberToo_whoStillReachesTheConsole() {
         Institution suspended = withStatus("Suspended For Review", InstitutionStatus.SUSPENDED);
-        Institution pending = withStatus("Awaiting Approval", InstitutionStatus.PENDING);
-        Cohort c = cohort(suspended);
         User platform = user("platform");
         platform.setPlatformAdmin(true);
         userRepository.save(platform);
-        member(platform, suspended, Role.SUPER_ADMIN); // even as a member of the suspended one
+        member(platform, suspended, Role.SUPER_ADMIN);
 
         Resp in = loginResp(platform);
         assertThat(in.status()).isEqualTo(200);
-        Resp entered = switchTo(in.text("accessToken"), suspended);
-        assertThat(entered.status()).isEqualTo(200);
-        assertThat(get("/api/cohorts/" + c.getPublicId(), entered.text("accessToken")).status()).isEqualTo(200);
-        assertThat(switchTo(in.text("accessToken"), pending).status()).isEqualTo(200);
-
-        Resp all = get("/api/institutions", in.text("accessToken"));
-        assertThat(all.body().findValuesAsText("status")).contains("SUSPENDED", "PENDING");
+        assertThat(in.body().get("institutionPublicId").isNull()).isTrue();
+        assertThat(switchTo(in.text("accessToken"), suspended).status()).isEqualTo(403);
+        assertThat(get("/api/platform/institutions", in.text("accessToken")).status()).isEqualTo(200);
     }
 
     @Test

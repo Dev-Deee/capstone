@@ -24,10 +24,10 @@ import java.util.EnumSet;
  * re-running is always a no-op once everything exists:
  *   1. the seed institution (with a slug),
  *   2. the seed user,
- *   3. their SUPER_ADMIN membership in that institution (institution owner),
- *   4. the platform-admin flag on that user (Cadence-wide oversight).
- * 3 and 4 are independent grants: owning one institution and overseeing the
- * platform are different powers that happen to be given to the same dev user.
+ *   3. their SUPER_ADMIN membership in that institution (institution owner).
+ * Platform oversight is a different power, seeded separately by
+ * {@link PlatformAdminSeeder}; app.seed.super-admin.platform-admin=true still
+ * grants it to this user too, for setups without a separate platform admin.
  */
 @Slf4j
 @Component
@@ -48,7 +48,7 @@ public class SuperAdminSeeder implements ApplicationRunner {
     @Value("${app.seed.institution.name:Semicolon Africa}")
     private String institutionName;
 
-    @Value("${app.seed.super-admin.platform-admin:true}")
+    @Value("${app.seed.super-admin.platform-admin:false}")
     private boolean grantPlatformAdmin;
 
     @Override

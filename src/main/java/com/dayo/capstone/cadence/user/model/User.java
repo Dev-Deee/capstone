@@ -114,21 +114,15 @@ public class User extends BaseEntity {
 
     /**
      * Roles in the institution the current request is acting in (TenantContext),
-     * empty outside one. A platform admin who has entered an institution acts as
-     * its SUPER_ADMIN; that applies only to them as the caller, never when they
-     * are the target of someone else's check.
+     * empty outside one. Only memberships count — being a platform admin adds nothing.
      */
     public Set<Role> getRoles() {
         Long institutionId = TenantContext.institutionId();
         if (institutionId == null) return Set.of();
-        Set<Role> result = memberships.stream()
+        return memberships.stream()
                 .filter(m -> m.isActive() && m.getInstitution().getId().equals(institutionId))
                 .flatMap(m -> m.getRoles().stream())
                 .collect(Collectors.toCollection(() -> EnumSet.noneOf(Role.class)));
-        if (isPlatformAdmin && TenantContext.isPlatformAdminActing(getPublicId())) {
-            result.add(Role.SUPER_ADMIN);
-        }
-        return result;
     }
 
     public boolean hasRole(Role role) {

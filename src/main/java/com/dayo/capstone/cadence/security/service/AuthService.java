@@ -224,8 +224,9 @@ public class AuthService {
     }
 
     /**
-     * Moves the caller's session into another institution: one they belong to,
-     * or — for a platform admin only — any institution (audited as PLATFORM_ACCESS).
+     * Moves the caller's session into another institution they belong to.
+     * Platform admins get no exception: overseeing the platform never grants
+     * access to an institution's data.
      */
     @Transactional
     public AuthResponse switchInstitution(UUID userPublicId, UUID institutionPublicId, String userAgent, String ipAddress) {
@@ -234,17 +235,10 @@ public class AuthService {
                 .orElseThrow(() -> new BadCredentialsException("Please sign in again"));
         Institution institution = institutionRepository.findByPublicId(institutionPublicId)
                 .orElseThrow(() -> new ResourceNotFoundException("Institution not found"));
-        if (!user.isMemberOf(institution.getId()) && !user.isPlatformAdmin()) {
+        if (!user.isMemberOf(institution.getId())) {
             throw new ResourceNotFoundException("Institution not found");
         }
-        AuthResponse response = sessionTokenService.issue(user, institution, userAgent, ipAddress);
-        if (!user.isMemberOf(institution.getId())) {
-            auditLogService.log(user.getPublicId(), "[PLATFORM_ADMIN]", AuditAction.PLATFORM_ACCESS,
-                    "Institution", institution.getPublicId());
-            log.warn("Platform admin entered institution: userPublicId={}, institutionPublicId={}",
-                    user.getPublicId(), institution.getPublicId());
-        }
-        return response;
+        return sessionTokenService.issue(user, institution, userAgent, ipAddress);
     }
     // ─────────────────────────────────────────────────────────────────────
     // PASSWORD & EMAIL MANAGEMENT

@@ -6,31 +6,65 @@ import com.dayo.capstone.cadence.institution.model.Institution;
 import com.dayo.capstone.cadence.support.IntegrationTestBase;
 import com.dayo.capstone.cadence.user.enums.Role;
 import com.dayo.capstone.cadence.user.model.User;
+import com.dayo.capstone.cadence.security.service.JwtService;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** PLATFORM_ADMIN is the only role with unscoped reach, and it is never handed out by sign-up or invites. */
+/**
+ * PLATFORM_ADMIN oversees institutions (list, status) but never reaches inside one:
+ * no switching in, no stand-in roles, no institution data. It is never handed out
+ * by sign-up or invites.
+ */
 class PlatformAdminTest extends IntegrationTestBase {
 
+    @Autowired JwtService jwtService;
+
     @Test
-    void platformAdminCanEnterAnyInstitutionAndActAsItsOwner_audited() {
-        Institution home = institution("Home Inst");
+    void platformAdminCannotEnterAnInstitutionTheyDontBelongTo() {
         Institution other = institution("Other Inst");
         Cohort otherCohort = cohort(other);
         User platform = user("platform");
         platform.setPlatformAdmin(true);
         userRepository.save(platform);
-        member(platform, home, Role.FACILITATOR);
 
-        Resp entered = switchTo(login(platform), other);
-        assertThat(entered.status()).isEqualTo(200);
-        assertThat(entered.body().get("roles").toString()).contains("SUPER_ADMIN");
-        assertThat(get("/api/cohorts/" + otherCohort.getPublicId(), entered.text("accessToken")).status()).isEqualTo(200);
-        assertThat(auditLogRepository.findAll()).anyMatch(l -> l.getAction() == AuditAction.PLATFORM_ACCESS
-                && other.getPublicId().toString().equals(l.getEntityPublicId()));
+        Resp in = call("POST", "/api/auth/login", Map.of("identifier", platform.getEmail(), "password", PASSWORD), null);
+        assertThat(in.status()).isEqualTo(200);
+        assertThat(in.body().get("institutionPublicId").isNull()).isTrue();
+        assertThat(in.body().get("roles").size()).isZero();
+
+        String token = in.text("accessToken");
+        assertThat(switchTo(token, other).status()).isEqualTo(404);
+        assertThat(get("/api/cohorts/" + otherCohort.getPublicId(), token).status()).isIn(401, 403, 404);
+        assertThat(get("/api/cohorts", token).status()).isIn(401, 403);
+        assertThat(auditLogRepository.findAll()).noneMatch(l -> l.getAction() == AuditAction.PLATFORM_ACCESS);
+    }
+
+    @Test
+    void aTokenNamingAnInstitutionWithoutMembershipIsRejected() {
+        Institution other = institution("Forged Inst");
+        User platform = user("platform-forged");
+        platform.setPlatformAdmin(true);
+        userRepository.save(platform);
+        String forged = jwtService.generateAccessToken(platform.getPublicId(), java.util.Set.of("SUPER_ADMIN"),
+                other.getPublicId(), true);
+        assertThat(get("/api/cohorts", forged).status()).isIn(401, 403);
+        assertThat(get("/api/institutions/current", forged).status()).isIn(401, 403, 404);
+    }
+
+    @Test
+    void aPlatformAdminWhoIsAlsoAMemberGetsOnlyThatMembershipsRoles() {
+        Institution home = institution("Home Inst");
+        User platform = user("platform-member");
+        platform.setPlatformAdmin(true);
+        userRepository.save(platform);
+        member(platform, home, Role.FACILITATOR);
+        Resp in = switchTo(login(platform), home);
+        assertThat(in.status()).isEqualTo(200);
+        assertThat(in.body().get("roles").toString()).doesNotContain("SUPER_ADMIN").contains("FACILITATOR");
     }
 
     @Test
