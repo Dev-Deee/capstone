@@ -78,6 +78,7 @@ config change only.
 | `smtp` | `JavaMailSender` | local/demo, hosts that allow outbound SMTP |
 | `brevo-api` | Brevo HTTPS API | deployment |
 | `resend-api` | Resend HTTPS API | deployment |
+| `mailjet-api` | Mailjet Send API v3.1 (HTTPS) | deployment |
 
 Sending is asynchronous with 5-second connect/read timeouts and up to 3 attempts for errors that may
 pass (timeouts, 5xx, 429); a bad key or rejected address isn't retried. Failures are logged with the
@@ -91,10 +92,11 @@ WILL BE SENT") rather than dropping mail silently.
 
 | Variable | Needed by | Notes |
 |---|---|---|
-| `EMAIL_PROVIDER` | all | `log`, `smtp`, `brevo-api`, `resend-api` |
-| `EMAIL_FROM_ADDRESS` | brevo-api, resend-api (smtp: optional) | a sender on a domain you've verified with the provider |
+| `EMAIL_PROVIDER` | all | `log`, `smtp`, `brevo-api`, `resend-api`, `mailjet-api` |
+| `EMAIL_FROM_ADDRESS` | brevo-api, resend-api, mailjet-api (smtp: optional) | a sender on a domain you've verified with the provider |
 | `EMAIL_FROM_NAME` | optional | default `Cadence` |
-| `EMAIL_API_KEY` | brevo-api, resend-api | from the provider dashboard |
+| `EMAIL_API_KEY` | brevo-api, resend-api, mailjet-api | from the provider dashboard (Mailjet: the API key) |
+| `EMAIL_API_SECRET` | mailjet-api | Mailjet's secret key (its API uses a key pair) |
 | `EMAIL_API_BASE_URL` | optional | override the API host (tests use a local fake) |
 | `EMAIL_TIMEOUT_MS` | optional | default `5000` |
 | `EMAIL_DAILY_CAP` | optional | default `280` — see below |
@@ -129,6 +131,20 @@ Free tiers as checked in October 2026 — **re-verify before relying on them**:
 1. Create an account and an API key (Brevo: SMTP & API → API keys; Resend: API Keys).
 2. Add and verify your sending domain in the provider (see SPF/DKIM below).
 3. Set `EMAIL_PROVIDER=brevo-api` (or `resend-api`), `EMAIL_API_KEY`, `EMAIL_FROM_ADDRESS=no-reply@yourdomain`.
+
+### Mailjet (deployment)
+
+1. Create an account; under **Account settings → API key management** copy the **API key** and the
+   **secret key**.
+2. Under **Senders & domains**, add your domain and set up SPF/DKIM (below), or at least validate the
+   single sender address you'll send from. Mail from an unvalidated sender is refused — Mailjet reports
+   it inside a 200 response, which Cadence treats as a failed send and logs.
+3. Set `EMAIL_PROVIDER=mailjet-api`, `EMAIL_API_KEY=<API key>`, `EMAIL_API_SECRET=<secret key>`,
+   `EMAIL_FROM_ADDRESS=no-reply@yourdomain`, and `EMAIL_DAILY_CAP=190` on the free plan (200/day).
+
+Mailjet also offers an SMTP relay: on a host that allows outbound SMTP you can use `EMAIL_PROVIDER=smtp`
+instead, with the relay host and port from Mailjet's dashboard, the API key as `MAIL_USERNAME` and the
+secret key as `MAIL_PASSWORD`. Free-plan emails carry the Mailjet logo.
 
 ### SPF and DKIM (sending from your own domain)
 

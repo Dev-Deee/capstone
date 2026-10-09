@@ -42,16 +42,25 @@ public abstract class HttpApiEmailSender implements EmailSender {
 
     protected abstract Map<String, Object> body(EmailMessage m);
 
+    /**
+     * Inspect a 2xx response body. Most providers signal failure by status
+     * code alone; some (Mailjet) can also report a per-message failure inside
+     * a successful response. Throw to treat it as a failed send.
+     */
+    protected void checkResponse(String responseBody) throws EmailSendException {
+    }
+
     @Override
     public void send(EmailMessage m) throws EmailSendException {
+        String responseBody;
         try {
-            client.post().uri(path())
+            responseBody = client.post().uri(path())
                     .header(authHeaderName(), authHeaderValue())
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.APPLICATION_JSON)
                     .body(body(m))
                     .retrieve()
-                    .toBodilessEntity();
+                    .body(String.class);
         } catch (RestClientResponseException e) {
             HttpStatusCode status = e.getStatusCode();
             // Status only — the response body can echo request details.
@@ -62,5 +71,6 @@ public abstract class HttpApiEmailSender implements EmailSender {
         } catch (Exception e) {
             throw new EmailSendException(name() + " send failed: " + e.getClass().getSimpleName(), true, e);
         }
+        checkResponse(responseBody);
     }
 }
