@@ -13,6 +13,12 @@ public class JwtProperties {
     @Value("${app.jwt.public-key-path}")
     private String publicKeyPath;
 
+    @Value("${app.jwt.private-key:}")
+    private String privateKeyPem;
+
+    @Value("${app.jwt.public-key:}")
+    private String publicKeyPem;
+
     @Value("${app.jwt.access-token-expiry-ms}")
     private Long accessTokenExpiryMs;
 
