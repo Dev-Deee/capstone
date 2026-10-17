@@ -46,3 +46,9 @@ build/
 ### Uploaded/generated files (Materials, transcripts) ###
 uploads/
 generated-reports/
+keys/
+src/main/resources/keys/
+.env_key*
+.claude
+.idea
+.vscode

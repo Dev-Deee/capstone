@@ -1,0 +1,10 @@
+target
+.git
+.github
+.idea
+.env
+*.env.local
+keys
+src/main/resources/keys
+docker
+*.md
