@@ -26,6 +26,41 @@ isn't touched, so a password changed in the app stays changed.
 
 ---
 
+## CI/CD
+
+| Branch | What runs |
+|---|---|
+| `feature/*`, `fix/*`, `ci/*`, `develop`, PRs into `develop`/`main` | **CI** (`.github/workflows/ci.yml`): build, all tests, Docker image build |
+| `main` | **Deploy** (`.github/workflows/deploy.yml`): tests again, then `railway up` |
+
+`develop` is the integration branch; `main` only moves by a `develop → main` pull request, and every
+push to it is a production deploy. The web app (`capstone_frontend`) follows the same rule and deploys
+to Vercel.
+
+### Railway setup (one-off)
+
+1. Create a project with a **PostgreSQL** database and an empty service (e.g. `cadence-api`). Turn off
+   the service's own GitHub auto-deploy — the workflow deploys it, only after tests pass.
+2. In the service's variables set:
+
+   | Variable | Value |
+   |---|---|
+   | `DB_URL` | `jdbc:postgresql://<PGHOST>:<PGPORT>/<PGDATABASE>` from the database's variables |
+   | `DB_USERNAME`, `DB_PASSWORD` | the database's `PGUSER` / `PGPASSWORD` |
+   | `JWT_PRIVATE_KEY_PEM`, `JWT_PUBLIC_KEY_PEM` | the PEM text of a fresh RSA key pair (not your local one) |
+   | `CORS_ALLOWED_ORIGINS`, `FRONTEND_URL` | the Vercel URL, e.g. `https://cadence.vercel.app` |
+   | `WEBAUTHN_RP_ID`, `WEBAUTHN_ORIGIN` | the web app's domain (`cadence.vercel.app`) and origin (`https://cadence.vercel.app`) |
+   | `SUPER_ADMIN_*`, `PLATFORM_ADMIN_*`, `EMAIL_*`, `CLOUDINARY_*` | as in `.env` |
+
+   Railway sets `PORT`; the app listens on it.
+3. Apply `docker/migrations/*.sql` to the new database once, in date order.
+4. Create a **project token** for the production environment. In GitHub → Settings → Secrets and
+   variables → Actions add secret `RAILWAY_TOKEN` and variable `RAILWAY_SERVICE` (the service name).
+
+Until those are set, the deploy job passes with a warning and deploys nothing.
+
+---
+
 ## Notifications
 
 PRD Section 12. A producing service publishes a **domain event** once; independent listeners fan it

@@ -23,7 +23,7 @@ public class RsaKeyConfig {
 
     @Bean
     public RSAPrivateKey rsaPrivateKey() throws Exception {
-        String pem = readPemFile(jwtProperties.getPrivateKeyPath())
+        String pem = pem(jwtProperties.getPrivateKeyPem(), jwtProperties.getPrivateKeyPath())
                 .replace("-----BEGIN PRIVATE KEY-----", "")
                 .replace("-----END PRIVATE KEY-----", "")
                 .replaceAll("\\s", "");
@@ -35,7 +35,7 @@ public class RsaKeyConfig {
 
     @Bean
     public RSAPublicKey rsaPublicKey() throws Exception {
-        String pem = readPemFile(jwtProperties.getPublicKeyPath())
+        String pem = pem(jwtProperties.getPublicKeyPem(), jwtProperties.getPublicKeyPath())
                 .replace("-----BEGIN PUBLIC KEY-----", "")
                 .replace("-----END PUBLIC KEY-----", "")
                 .replaceAll("\\s", "");
@@ -43,6 +43,15 @@ public class RsaKeyConfig {
         byte[] decoded = Base64.getDecoder().decode(pem);
         X509EncodedKeySpec spec = new X509EncodedKeySpec(decoded);
         return (RSAPublicKey) KeyFactory.getInstance("RSA").generatePublic(spec);
+    }
+
+    // PEM text from the environment wins over the file; "\n" escapes (as some
+    // hosts store multi-line values) are turned back into line breaks.
+    private String pem(String inline, String path) throws Exception {
+        if (inline != null && !inline.isBlank()) {
+            return inline.replace("\\n", "\n");
+        }
+        return readPemFile(path);
     }
 
     private String readPemFile(String path) throws Exception {
