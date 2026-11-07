@@ -1,6 +1,8 @@
 package com.dayo.capstone.cadence.notification.service;
 
 import com.dayo.capstone.cadence.common.event.AttendanceOverriddenEvent;
+import com.dayo.capstone.cadence.common.event.GradesReleasedEvent;
+import com.dayo.capstone.cadence.common.event.SubmissionSentBackEvent;
 import com.dayo.capstone.cadence.common.event.DomainEvent;
 import com.dayo.capstone.cadence.common.event.InviteAcceptedEvent;
 import com.dayo.capstone.cadence.common.event.StudentCohortChangedEvent;
@@ -29,6 +31,7 @@ import java.util.function.Supplier;
 public class NotificationListener {
 
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE d MMM");
+    private static final DateTimeFormatter DAY_TIME = DateTimeFormatter.ofPattern("EEE d MMM, HH:mm");
 
     private final NotificationService notifications;
 
@@ -65,6 +68,28 @@ public class NotificationListener {
                 e.memberName() + " joined",
                 e.memberName() + " accepted your invite and joined as " + roleLabel(e.role()) + ".",
                 notifications.personRoute(e.inviterId(), e.institutionId(), e.memberPublicId()), e.memberPublicId())));
+    }
+
+    @Async("eventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void on(SubmissionSentBackEvent e) {
+        handle(e, () -> List.of(new Draft(
+                e.studentId(), NotificationType.SUBMISSION_SENT_BACK,
+                "Redo requested: " + e.assignmentTitle(),
+                "Your facilitator sent back your work on " + e.assignmentTitle()
+                        + (e.redoDueAt() != null ? " to redo by " + e.redoDueAt().format(DAY_TIME) : "")
+                        + ". Their comments are on the assignment.",
+                "/dashboard/student/learning?tab=assignments", null)));
+    }
+
+    @Async("eventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void on(GradesReleasedEvent e) {
+        handle(e, () -> e.studentIds().stream().map(id -> new Draft(
+                id, NotificationType.GRADES_RELEASED,
+                "Grade released: " + e.assignmentTitle(),
+                "Your grade and feedback on " + e.assignmentTitle() + " are ready.",
+                "/dashboard/student/learning?tab=assignments", null)).toList());
     }
 
     private void handle(DomainEvent event, Supplier<List<Draft>> drafts) {

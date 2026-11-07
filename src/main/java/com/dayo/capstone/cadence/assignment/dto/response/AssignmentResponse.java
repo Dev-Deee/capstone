@@ -1,6 +1,7 @@
 package com.dayo.capstone.cadence.assignment.dto.response;
 
 import com.dayo.capstone.cadence.assignment.enums.AssignmentStatus;
+import com.dayo.capstone.cadence.assignment.enums.GradingType;
 import lombok.Builder;
 
 import java.time.LocalDateTime;
@@ -22,5 +23,8 @@ public record AssignmentResponse(
         LocalDateTime createdAt,
         String attachmentUrl,
         String attachmentName,
-        LocalDateTime publishAt
+        LocalDateTime publishAt,
+        GradingType gradingType,
+        Integer maxMarks,
+        LocalDateTime gradesReleasedAt
 ) {}
