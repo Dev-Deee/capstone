@@ -9,6 +9,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -50,4 +51,32 @@ public class Submission extends BaseEntity {
 
     @Column(name = "resubmission_count")
     private int resubmissionCount = 0;
+
+    // Attempts the facilitator granted beyond the assignment's maxResubmissions.
+    @Column(name = "extra_attempts", nullable = false, columnDefinition = "integer default 0")
+    private int extraAttempts = 0;
+
+    // ── The current review (each one is also kept in submission_attempt) ──
+    @Column(precision = 7, scale = 2)
+    private BigDecimal score;
+
+    private Boolean passed;
+
+    @Column(columnDefinition = "TEXT")
+    private String feedback;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reviewed_by_id")
+    private User reviewedBy;
+
+    @Column(name = "reviewed_at")
+    private LocalDateTime reviewedAt;
+
+    // While REDO_REQUESTED: the student may submit again until this time.
+    @Column(name = "redo_due_at")
+    private LocalDateTime redoDueAt;
+
+    public int attemptsAllowed() {
+        return assignment.getMaxResubmissions() + extraAttempts;
+    }
 }

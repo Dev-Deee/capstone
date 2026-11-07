@@ -44,22 +44,32 @@ public class SubmissionService {
         }
 
         Assignment assignment = submission.getAssignment();
-
-        if (assignment.getStatus() != AssignmentStatus.OPEN) {
-            throw new IllegalArgumentException("This assignment is not open for submissions");
-        }
-
-        LocalDateTime effectiveDeadline = resolveEffectiveDeadline(submission, assignment);
         LocalDateTime now = LocalDateTime.now();
 
-        if (now.isAfter(effectiveDeadline)) {
-            throw new IllegalArgumentException("The submission deadline has passed");
+        // Work sent back for a redo can be handed in until its redo-by date,
+        // even after the assignment's own deadline or closing.
+        boolean redo = submission.getStatus() == SubmissionStatus.REDO_REQUESTED;
+        if (submission.getStatus() == SubmissionStatus.REVIEWED) {
+            throw new IllegalArgumentException("This work has already been reviewed");
+        }
+        if (redo) {
+            if (submission.getRedoDueAt() != null && now.isAfter(submission.getRedoDueAt())) {
+                throw new IllegalArgumentException("The time to redo this work has passed. Ask your facilitator for more time.");
+            }
+        } else {
+            if (assignment.getStatus() != AssignmentStatus.OPEN) {
+                throw new IllegalArgumentException("This assignment is not open for submissions");
+            }
+            if (now.isAfter(resolveEffectiveDeadline(submission, assignment))) {
+                throw new IllegalArgumentException("The submission deadline has passed");
+            }
         }
 
         // Resubmission guard — resubmissionCount is incremented on every submit
         // AFTER the first (submittedAt being non-null indicates a prior submission).
+        // The facilitator may grant extra attempts beyond the assignment's limit.
         if (submission.getSubmittedAt() != null) {
-            if (submission.getResubmissionCount() >= assignment.getMaxResubmissions()) {
+            if (submission.getResubmissionCount() >= submission.attemptsAllowed()) {
                 throw new IllegalArgumentException("Maximum number of resubmissions has been reached");
             }
             submission.setResubmissionCount(submission.getResubmissionCount() + 1);
@@ -82,8 +92,9 @@ public class SubmissionService {
         submission.setSubmittedAt(now);
 
         // SUBMITTED if before the original assignment deadline; LATE_SUBMITTED
-        // if after it but still within an approved extension window.
-        SubmissionStatus newStatus = now.isAfter(assignment.getDeadline())
+        // if after it but still within an approved extension window. A redo
+        // handed in before its redo-by date is on time.
+        SubmissionStatus newStatus = !redo && now.isAfter(assignment.getDeadline())
                 ? SubmissionStatus.LATE_SUBMITTED
                 : SubmissionStatus.SUBMITTED;
         submission.setStatus(newStatus);
@@ -135,11 +146,22 @@ public class SubmissionService {
                 .max(java.util.Comparator.comparing(e -> e.getCreatedAt()))
                 .map(e -> e.getStatus())
                 .orElse(null);
+        Assignment assignment = submission.getAssignment();
+        boolean released = assignment.getGradesReleasedAt() != null;
+        // Until grades are released, accepted work reads as handed in and its
+        // grade and comment stay hidden. A send-back always shows: the student must act.
+        boolean hideReview = submission.getStatus() == SubmissionStatus.REVIEWED && !released;
+        boolean showReview = submission.getStatus() == SubmissionStatus.REDO_REQUESTED
+                || (submission.getStatus() == SubmissionStatus.REVIEWED && released);
+        SubmissionStatus shownStatus = hideReview
+                ? (submission.getSubmittedAt() != null && submission.getSubmittedAt().isAfter(assignment.getDeadline())
+                    ? SubmissionStatus.LATE_SUBMITTED : SubmissionStatus.SUBMITTED)
+                : submission.getStatus();
         return SubmissionResponse.builder()
                 .publicId(submission.getPublicId())
-                .assignmentPublicId(submission.getAssignment().getPublicId())
+                .assignmentPublicId(assignment.getPublicId())
                 .studentPublicId(submission.getStudent().getPublicId())
-                .status(submission.getStatus())
+                .status(shownStatus)
                 .submissionType(submission.getSubmissionType())
                 .linkUrl(submission.getLinkUrl())
                 .fileUrl(submission.getFileUrl())
@@ -148,6 +170,15 @@ public class SubmissionService {
                 .createdAt(submission.getCreatedAt())
                 .effectiveDeadline(effectiveDeadline)
                 .extensionStatus(extensionStatus)
+                .attemptsAllowed(submission.attemptsAllowed())
+                .gradingType(assignment.getGradingType())
+                .maxMarks(assignment.getMaxMarks())
+                .score(showReview ? submission.getScore() : null)
+                .passed(showReview ? submission.getPassed() : null)
+                .feedback(showReview ? submission.getFeedback() : null)
+                .reviewedAt(showReview ? submission.getReviewedAt() : null)
+                .redoDueAt(submission.getStatus() == SubmissionStatus.REDO_REQUESTED ? submission.getRedoDueAt() : null)
+                .gradesReleased(released)
                 .build();
     }
 }

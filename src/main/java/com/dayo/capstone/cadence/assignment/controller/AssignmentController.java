@@ -124,6 +124,9 @@ public class AssignmentController {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Choose a file to attach");
         }
+        if (file.getSize() > 5L * 1024 * 1024) {
+            throw new IllegalArgumentException("That file is too large (5 MB max)");
+        }
         User caller = userService.findEntityByPublicId(principal.userPublicId());
         Institution callerInstitution = institutionService.findEntityByUserPublicId(principal.userPublicId());
         return ResponseEntity.ok(assignmentService.attach(

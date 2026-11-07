@@ -6,6 +6,7 @@ import com.dayo.capstone.cadence.assignment.model.Submission;
 import com.dayo.capstone.cadence.user.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,4 +17,7 @@ public interface SubmissionRepository extends JpaRepository<Submission, Long> {
     List<Submission> findByStudent(User student);
     List<Submission> findByAssignment(Assignment assignment);
     List<Submission> findByStatus(SubmissionStatus status);
+
+    // Work handed in and waiting for the facilitator's review, across their assignments.
+    long countByAssignment_FacilitatorAndStatusIn(User facilitator, Collection<SubmissionStatus> statuses);
 }

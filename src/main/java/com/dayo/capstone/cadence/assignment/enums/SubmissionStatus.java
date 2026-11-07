@@ -5,5 +5,7 @@ public enum SubmissionStatus {
     SUBMITTED,
     LATE_SUBMITTED,
     MISSING,
-    REVIEWED
+    REVIEWED,
+    // Sent back by the facilitator: the student may submit again until redoDueAt.
+    REDO_REQUESTED
 }
