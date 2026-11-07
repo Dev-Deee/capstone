@@ -117,7 +117,7 @@ public class FacilitatorAnalyticsService {
                 switch (sub.getStatus()) {
                     case SUBMITTED -> { onTime++; w[0]++; }
                     case LATE_SUBMITTED -> { late++; w[0]++; w[1]++; }
-                    case REVIEWED -> { reviewed++; w[0]++; }
+                    case REVIEWED, REDO_REQUESTED -> { reviewed++; w[0]++; }
                     case MISSING -> { missing++; w[2]++; }
                     case PENDING -> notYet++;
                 }

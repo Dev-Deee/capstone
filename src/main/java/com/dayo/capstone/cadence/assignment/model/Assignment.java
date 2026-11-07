@@ -1,6 +1,7 @@
 package com.dayo.capstone.cadence.assignment.model;
 
 import com.dayo.capstone.cadence.assignment.enums.AssignmentStatus;
+import com.dayo.capstone.cadence.assignment.enums.GradingType;
 import com.dayo.capstone.cadence.cohort.model.Cohort;
 import com.dayo.capstone.cadence.common.BaseEntity;
 import com.dayo.capstone.cadence.institution.model.Subject;
@@ -71,4 +72,18 @@ public class Assignment extends BaseEntity {
     // it once this time passes. Null = publish by hand.
     @Column(name = "publish_at")
     private LocalDateTime publishAt;
+
+    // Grading, set at creation. maxMarks applies to MARKS only.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "grading_type", nullable = false, columnDefinition = "varchar(20) default 'MARKS'")
+    private GradingType gradingType = GradingType.MARKS;
+
+    @Column(name = "max_marks")
+    private Integer maxMarks = 100;
+
+    // Grades and acceptance comments stay hidden from students until the
+    // facilitator releases them, so the whole cohort sees them at once.
+    // A send-back request is never held: the student has to act on it.
+    @Column(name = "grades_released_at")
+    private LocalDateTime gradesReleasedAt;
 }

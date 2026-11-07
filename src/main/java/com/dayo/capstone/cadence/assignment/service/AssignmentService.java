@@ -3,6 +3,7 @@ package com.dayo.capstone.cadence.assignment.service;
 import com.dayo.capstone.cadence.assignment.dto.request.CreateAssignmentRequest;
 import com.dayo.capstone.cadence.assignment.dto.response.AssignmentResponse;
 import com.dayo.capstone.cadence.assignment.enums.AssignmentStatus;
+import com.dayo.capstone.cadence.assignment.enums.GradingType;
 import com.dayo.capstone.cadence.assignment.enums.SubmissionStatus;
 import com.dayo.capstone.cadence.assignment.model.Assignment;
 import com.dayo.capstone.cadence.assignment.model.Submission;
@@ -68,6 +69,11 @@ public class AssignmentService {
         if (request.getMaxResubmissions() != null) {
             assignment.setMaxResubmissions(request.getMaxResubmissions());
         }
+        GradingType gradingType = request.getGradingType() != null ? request.getGradingType() : GradingType.MARKS;
+        assignment.setGradingType(gradingType);
+        assignment.setMaxMarks(gradingType == GradingType.MARKS
+                ? (request.getMaxMarks() != null ? request.getMaxMarks() : 100)
+                : null);
 
         Assignment saved = assignmentRepository.save(assignment);
         log.info("Assignment created: publicId={}, cohortPublicId={}, subjectPublicId={}, facilitatorPublicId={}",
@@ -244,6 +250,9 @@ public class AssignmentService {
                 .attachmentUrl(assignment.getAttachmentUrl())
                 .attachmentName(assignment.getAttachmentName())
                 .publishAt(assignment.getPublishAt())
+                .gradingType(assignment.getGradingType())
+                .maxMarks(assignment.getMaxMarks())
+                .gradesReleasedAt(assignment.getGradesReleasedAt())
                 .build();
     }
 }

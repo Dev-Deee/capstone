@@ -98,7 +98,9 @@ service ── DomainEvents.publish(event) ──► (after commit, async) Notif
 | `StudentCohortChangedEvent` | the student | **wired** (admin enrols / moves a student) |
 | `InviteAcceptedEvent` | the inviter | **wired** (staff, co-owner and student invites) |
 | Assignment published / due soon / closed | cohort students | later stage |
-| Submission reviewed; extension approved / denied | the student | later stage |
+| `SubmissionSentBackEvent` | the student | **wired** (work sent back to redo; shown at once) — also emailed by default |
+| `GradesReleasedEvent` | each reviewed student | **wired** (facilitator releases an assignment's grades; or one student accepted after release) |
+| Extension approved / denied | the student | later stage |
 | Extension requested | the facilitator | later stage |
 | Check-in awaiting biometric (still pending after N min) | the student | later stage |
 | Attendance pattern flag raised | facilitator / admins with the permission | later stage (needs flags) |
@@ -146,7 +148,7 @@ WILL BE SENT") rather than dropping mail silently.
 | `EMAIL_TIMEOUT_MS` | optional | default `5000` |
 | `EMAIL_DAILY_CAP` | optional | default `280` — see below |
 | `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` | smtp | default host `smtp.gmail.com:587` (STARTTLS) |
-| `NOTIFICATION_EMAIL_TYPES` | optional | notification types also emailed; default `ATTENDANCE_OVERRIDDEN` |
+| `NOTIFICATION_EMAIL_TYPES` | optional | notification types also emailed; default `ATTENDANCE_OVERRIDDEN,SUBMISSION_SENT_BACK` |
 
 **Daily cap.** Free tiers cap sends per day, and account emails already use that allowance. Near
 `EMAIL_DAILY_CAP` the app logs a WARN; at the cap, notification emails are skipped (in-app delivery
