@@ -100,6 +100,7 @@ service ── DomainEvents.publish(event) ──► (after commit, async) Notif
 | Assignment published / due soon / closed | cohort students | later stage |
 | `SubmissionSentBackEvent` | the student | **wired** (work sent back to redo; shown at once) — also emailed by default |
 | `GradesReleasedEvent` | each reviewed student | **wired** (facilitator releases an assignment's grades; or one student accepted after release) |
+| `CoursePublishedEvent` | the course's audience (its cohorts, or every student) | **wired** (a course is published, now or on schedule) |
 | Extension approved / denied | the student | later stage |
 | Extension requested | the facilitator | later stage |
 | Check-in awaiting biometric (still pending after N min) | the student | later stage |
