@@ -5,7 +5,7 @@ package com.dayo.capstone.cadence.notification.model;
  * publish domain events and never reference these.
  *
  * Wired: ATTENDANCE_OVERRIDDEN, COHORT_CHANGED, INVITE_ACCEPTED,
- * SUBMISSION_SENT_BACK, GRADES_RELEASED.
+ * SUBMISSION_SENT_BACK, GRADES_RELEASED, COURSE_PUBLISHED.
  * The catalogue later stages add is in the backend README ("Notifications").
  */
 public enum NotificationType {
@@ -13,5 +13,6 @@ public enum NotificationType {
     COHORT_CHANGED,
     INVITE_ACCEPTED,
     SUBMISSION_SENT_BACK,
-    GRADES_RELEASED
+    GRADES_RELEASED,
+    COURSE_PUBLISHED
 }

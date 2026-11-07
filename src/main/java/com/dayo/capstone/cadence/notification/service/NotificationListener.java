@@ -1,6 +1,7 @@
 package com.dayo.capstone.cadence.notification.service;
 
 import com.dayo.capstone.cadence.common.event.AttendanceOverriddenEvent;
+import com.dayo.capstone.cadence.common.event.CoursePublishedEvent;
 import com.dayo.capstone.cadence.common.event.GradesReleasedEvent;
 import com.dayo.capstone.cadence.common.event.SubmissionSentBackEvent;
 import com.dayo.capstone.cadence.common.event.DomainEvent;
@@ -90,6 +91,16 @@ public class NotificationListener {
                 "Grade released: " + e.assignmentTitle(),
                 "Your grade and feedback on " + e.assignmentTitle() + " are ready.",
                 "/dashboard/student/learning?tab=assignments", null)).toList());
+    }
+
+    @Async("eventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void on(CoursePublishedEvent e) {
+        handle(e, () -> e.studentIds().stream().map(id -> new Draft(
+                id, NotificationType.COURSE_PUBLISHED,
+                "New course: " + e.courseTitle(),
+                e.courseTitle() + " is now available in your materials.",
+                "/dashboard/student/learning?tab=materials", e.coursePublicId())).toList());
     }
 
     private void handle(DomainEvent event, Supplier<List<Draft>> drafts) {
