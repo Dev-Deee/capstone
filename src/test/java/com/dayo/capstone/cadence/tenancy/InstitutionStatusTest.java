@@ -22,7 +22,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Institution.status is the only switch: ACTIVE institutions work; PENDING and
+ * Institution.status is the only switch: ACTIVE and PENDING institutions work;
  * SUSPENDED ones are closed to their members — sign-in, switching in, joining,
  * existing sessions and refresh — platform admins included.
  */
@@ -58,15 +58,40 @@ class InstitutionStatusTest extends IntegrationTestBase {
         assertThat(get("/api/cohorts", token).body().size()).isEqualTo(1);
     }
 
-    @ParameterizedTest
-    @EnumSource(value = InstitutionStatus.class, names = {"PENDING", "SUSPENDED"})
-    void membersOfAnUnusableInstitutionCantSignIn(InstitutionStatus status) {
-        Institution closed = withStatus("Closed " + status, status);
+    @Test
+    void membersOfASuspendedInstitutionCantSignIn() {
+        Institution closed = withStatus("Closed Suspended", InstitutionStatus.SUSPENDED);
         User member = user("member");
         member(member, closed, Role.STUDENT);
         Resp r = loginResp(member);
         assertThat(r.status()).isEqualTo(401);
         assertThat(r.message()).contains("isn't available");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = InstitutionStatus.class, names = {"ACTIVE", "PENDING"})
+    void activeAndPendingInstitutionsStayOpenToTheirMembers(InstitutionStatus status) {
+        Institution open = withStatus("Open " + status, status);
+        cohort(open);
+        User owner = user("owner");
+        member(owner, open, Role.SUPER_ADMIN);
+        Resp in = loginResp(owner);
+        assertThat(in.status()).isEqualTo(200);
+        assertThat(in.text("institutionPublicId")).isEqualTo(open.getPublicId().toString());
+        String token = in.text("accessToken");
+        assertThat(get("/api/cohorts", token).status()).isEqualTo(200);
+        assertThat(call("POST", "/api/auth/refresh", Map.of("refreshToken", in.text("refreshToken")), null).status())
+                .isEqualTo(200);
+    }
+
+    @Test
+    void markingAnInstitutionPendingDoesNotInterruptOpenSessions() {
+        Institution inst = withStatus("Goes Pending", InstitutionStatus.ACTIVE);
+        User owner = user("owner");
+        member(owner, inst, Role.SUPER_ADMIN);
+        String token = login(owner);
+        setStatus(inst, InstitutionStatus.PENDING);
+        assertThat(get("/api/cohorts", token).status()).isEqualTo(200);
     }
 
     @Test

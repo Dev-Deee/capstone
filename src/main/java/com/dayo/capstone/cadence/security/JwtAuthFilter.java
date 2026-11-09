@@ -94,7 +94,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         .findByUserPublicIdAndInstitutionPublicId(userPublicId, institutionPublicId)
                         .filter(Membership::isActive);
                 if (membership.isPresent() && !membership.get().getInstitution().isUsable()) {
-                    // Pending or suspended since this token was issued: the caller stays
+                    // Suspended since this token was issued: the caller stays
                     // signed in but acts in no institution — they can switch to another
                     // or sign out, and nothing here is reachable.
                     log.warn("Request in an unavailable institution: userPublicId={}, institution={}, status={}",

@@ -6,7 +6,7 @@ import com.dayo.capstone.cadence.institution.dto.request.FoundInstitutionRequest
 import com.dayo.capstone.cadence.institution.dto.request.InstitutionSignupRequest;
 import com.dayo.capstone.cadence.institution.dto.response.InstitutionResponse;
 import com.dayo.capstone.cadence.institution.dto.response.MembershipSummaryResponse;
-import com.dayo.capstone.cadence.institution.dto.response.SlugAvailabilityResponse;
+import com.dayo.capstone.cadence.institution.dto.response.HandleAvailabilityResponse;
 import com.dayo.capstone.cadence.institution.model.Institution;
 import com.dayo.capstone.cadence.institution.model.Membership;
 import com.dayo.capstone.cadence.institution.service.InstitutionOnboardingService;
@@ -54,9 +54,9 @@ public class InstitutionController {
                 request, httpRequest.getHeader("User-Agent"), httpRequest.getRemoteAddr()));
     }
 
-    @GetMapping("/slug-availability")
-    public ResponseEntity<SlugAvailabilityResponse> slugAvailability(@RequestParam String slug) {
-        return ResponseEntity.ok(onboardingService.checkSlug(slug));
+    @GetMapping("/handle-availability")
+    public ResponseEntity<HandleAvailabilityResponse> handleAvailability(@RequestParam String handle) {
+        return ResponseEntity.ok(onboardingService.checkHandle(handle));
     }
 
     // ── Signed-in users ───────────────────────────────────────────────────
@@ -85,7 +85,7 @@ public class InstitutionController {
                 .sorted(Comparator.comparing(Membership::getCreatedAt))
                 .map(m -> {
                     Institution i = m.getInstitution();
-                    return new MembershipSummaryResponse(i.getPublicId(), i.getName(), i.getSlug(),
+                    return new MembershipSummaryResponse(i.getPublicId(), i.getName(), i.getHandle(),
                             m.getRoles().stream().map(Role::name).collect(Collectors.toCollection(java.util.TreeSet::new)),
                             m.isActive(), i.getId().equals(current));
                 })

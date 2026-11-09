@@ -69,7 +69,7 @@ public class SecurityConfig {
                                 "/api/resumption-sessions/qr/**",
                                 // Self-serve institution sign-up (multi-tenant onboarding)
                                 "/api/institutions/signup",
-                                "/api/institutions/slug-availability"
+                                "/api/institutions/handle-availability"
                         ).permitAll()
                         // Invite preview is public (the token is the secret); accepting
                         // as an existing account (POST /api/invites/accept) is not.

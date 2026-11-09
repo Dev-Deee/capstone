@@ -17,7 +17,7 @@ class InputValidationTest extends IntegrationTestBase {
     private Map<String, Object> signup(String email, String phone, String password) {
         Map<String, Object> m = new HashMap<>();
         m.put("institutionName", "Validation Academy");
-        m.put("slug", unique("valid"));
+        m.put("handle", unique("valid"));
         m.put("firstName", "Ada");
         m.put("lastName", "Founder");
         m.put("email", email);

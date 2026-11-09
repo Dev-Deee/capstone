@@ -102,7 +102,7 @@ public abstract class IntegrationTestBase {
     protected Institution institution(String name) {
         Institution i = new Institution();
         i.setName(name);
-        i.setSlug(unique("inst"));
+        i.setHandle(unique("inst"));
         return institutionRepository.save(i);
     }
 

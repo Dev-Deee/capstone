@@ -6,7 +6,7 @@ import java.util.UUID;
 public record MembershipSummaryResponse(
         UUID institutionPublicId,
         String institutionName,
-        String institutionSlug,
+        String institutionHandle,
         Set<String> roles,
         boolean active,
         boolean current

@@ -12,7 +12,7 @@ import java.util.UUID;
 public record PlatformInstitutionRow(
         UUID publicId,
         String name,
-        String slug,
+        String handle,
         InstitutionStatus status,
         LocalDateTime createdAt,
         long members,
