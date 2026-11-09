@@ -21,7 +21,7 @@ public class Institution extends BaseEntity {
     private String name;
 
     @Column(unique = true, nullable = false, updatable = false, length = 50)
-    private String slug;
+    private String handle;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

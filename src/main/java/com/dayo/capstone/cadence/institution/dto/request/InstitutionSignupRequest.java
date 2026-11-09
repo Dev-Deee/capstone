@@ -18,7 +18,7 @@ public class InstitutionSignupRequest {
     private String institutionName;
 
     @NotBlank(message = "Choose an address for your institution")
-    private String slug;
+    private String handle;
 
     @NotBlank(message = "First name is required")
     private String firstName;

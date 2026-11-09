@@ -161,7 +161,7 @@ public class SessionTokenService {
                 .roles(roles)
                 .institutionPublicId(institution != null ? institution.getPublicId() : null)
                 .institutionName(institution != null ? institution.getName() : null)
-                .institutionSlug(institution != null ? institution.getSlug() : null)
+                .institutionHandle(institution != null ? institution.getHandle() : null)
                 .platformAdmin(user.isPlatformAdmin())
                 .build();
     }
