@@ -55,7 +55,7 @@ public class InstitutionService {
         return InstitutionResponse.builder()
                 .publicId(institution.getPublicId())
                 .name(institution.getName())
-                .slug(institution.getSlug())
+                .handle(institution.getHandle())
                 .status(institution.getStatus())
                 .address(institution.getAddress())
                 .guardianLinkageMode(institution.getGuardianLinkageMode())

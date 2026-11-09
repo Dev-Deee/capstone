@@ -71,7 +71,7 @@ public class PlatformService {
                 .map(i -> {
                     User owner = owners.get(i.getId());
                     return PlatformInstitutionRow.builder()
-                            .publicId(i.getPublicId()).name(i.getName()).slug(i.getSlug())
+                            .publicId(i.getPublicId()).name(i.getName()).handle(i.getHandle())
                             .status(i.getStatus()).createdAt(i.getCreatedAt())
                             .members(members.getOrDefault(i.getId(), 0L))
                             .ownerName(owner == null ? null : owner.getFullName())

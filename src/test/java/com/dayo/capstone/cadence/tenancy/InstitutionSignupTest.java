@@ -15,10 +15,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class InstitutionSignupTest extends IntegrationTestBase {
 
-    private Map<String, Object> signup(String slug, String email) {
+    private Map<String, Object> signup(String handle, String email) {
         Map<String, Object> m = new HashMap<>();
         m.put("institutionName", "Lagos Tech Academy");
-        m.put("slug", slug);
+        m.put("handle", handle);
         m.put("firstName", "Ada");
         m.put("lastName", "Founder");
         m.put("email", email);
@@ -30,14 +30,14 @@ class InstitutionSignupTest extends IntegrationTestBase {
 
     @Test
     void newUserFoundsInstitution_becomesItsSuperAdmin_audited() {
-        String slug = unique("lagos-tech");
+        String handle = unique("lagos-tech");
         String email = unique("ada") + "@test.cadence";
-        Resp r = call("POST", "/api/institutions/signup", signup(slug, email), null);
+        Resp r = call("POST", "/api/institutions/signup", signup(handle, email), null);
 
         assertThat(r.status()).isEqualTo(201);
-        assertThat(r.text("institutionSlug")).isEqualTo(slug);
+        assertThat(r.text("institutionHandle")).isEqualTo(handle);
         assertThat(r.body().get("roles").toString()).contains("SUPER_ADMIN");
-        Institution inst = institutionRepository.findBySlug(slug).orElseThrow();
+        Institution inst = institutionRepository.findByHandle(handle).orElseThrow();
         assertThat(inst.getStatus().name()).isEqualTo("ACTIVE");
         User founder = userRepository.findByEmailIgnoreCase(email).orElseThrow();
         assertThat(membershipRepository.findByUserAndInstitution(founder, inst).orElseThrow().getRoles())
@@ -45,30 +45,30 @@ class InstitutionSignupTest extends IntegrationTestBase {
         assertThat(auditLogRepository.findAll()).anyMatch(l -> l.getAction() == AuditAction.INSTITUTION_CREATED
                 && inst.getPublicId().toString().equals(l.getEntityPublicId()));
         // The returned token works straight away.
-        assertThat(get("/api/institutions/current", r.text("accessToken")).text("slug")).isEqualTo(slug);
+        assertThat(get("/api/institutions/current", r.text("accessToken")).text("handle")).isEqualTo(handle);
     }
 
     @Test
-    void takenSlugIsRejectedWithASuggestion_andNothingIsCreated() {
-        String slug = unique("dup");
-        assertThat(call("POST", "/api/institutions/signup", signup(slug, unique("first") + "@test.cadence"), null).status()).isEqualTo(201);
+    void takenHandleIsRejectedWithASuggestion_andNothingIsCreated() {
+        String handle = unique("dup");
+        assertThat(call("POST", "/api/institutions/signup", signup(handle, unique("first") + "@test.cadence"), null).status()).isEqualTo(201);
 
         String secondEmail = unique("second") + "@test.cadence";
-        Resp r = call("POST", "/api/institutions/signup", signup(slug, secondEmail), null);
+        Resp r = call("POST", "/api/institutions/signup", signup(handle, secondEmail), null);
         assertThat(r.status()).isEqualTo(409);
-        assertThat(r.message()).contains("already taken").contains(slug + "-2");
+        assertThat(r.message()).contains("already taken").contains(handle + "-2");
         assertThat(userRepository.findByEmailIgnoreCase(secondEmail)).isEmpty(); // rolled back, no orphan user
 
-        Resp check = get("/api/institutions/slug-availability?slug=" + slug, null);
+        Resp check = get("/api/institutions/handle-availability?handle=" + handle, null);
         assertThat(check.body().get("available").asBoolean()).isFalse();
-        assertThat(check.text("suggestion")).isEqualTo(slug + "-2");
+        assertThat(check.text("suggestion")).isEqualTo(handle + "-2");
     }
 
     @Test
-    void badOrReservedSlugsAreRejected() {
+    void badOrReservedHandlesAreRejected() {
         assertThat(call("POST", "/api/institutions/signup", signup("Has Spaces!", unique("x") + "@test.cadence"), null).status()).isEqualTo(400);
         assertThat(call("POST", "/api/institutions/signup", signup("admin", unique("y") + "@test.cadence"), null).status()).isEqualTo(400);
-        assertThat(get("/api/institutions/slug-availability?slug=Lagos%20Tech", null).text("suggestion")).isEqualTo("lagos-tech");
+        assertThat(get("/api/institutions/handle-availability?handle=Lagos%20Tech", null).text("suggestion")).isEqualTo("lagos-tech");
     }
 
     @Test
@@ -85,27 +85,27 @@ class InstitutionSignupTest extends IntegrationTestBase {
         User student = user("student");
         member(student, school, Role.STUDENT);
 
-        String slug = unique("their-own");
-        Resp r = call("POST", "/api/institutions", Map.of("name", "Their Own Academy", "slug", slug), login(student));
+        String handle = unique("their-own");
+        Resp r = call("POST", "/api/institutions", Map.of("name", "Their Own Academy", "handle", handle), login(student));
         assertThat(r.status()).isEqualTo(201);
         assertThat(r.body().get("roles").toString()).contains("SUPER_ADMIN");
 
-        Institution own = institutionRepository.findBySlug(slug).orElseThrow();
+        Institution own = institutionRepository.findByHandle(handle).orElseThrow();
         assertThat(membershipRepository.findByUserAndInstitution(student, school).orElseThrow().getRoles()).containsExactly(Role.STUDENT);
         assertThat(membershipRepository.findByUserAndInstitution(student, own).orElseThrow().getRoles()).containsExactly(Role.SUPER_ADMIN);
         assertThat(userRepository.findAll().stream().filter(u -> student.getEmail().equals(u.getEmail()))).hasSize(1);
     }
 
     @Test
-    void slugIsImmutableEvenWhenTheInstitutionIsRenamed() {
+    void handleIsImmutableEvenWhenTheInstitutionIsRenamed() {
         Institution inst = institution("Original Name");
-        String original = inst.getSlug();
+        String original = inst.getHandle();
         inst.setName("Renamed");
-        inst.setSlug("something-else");
+        inst.setHandle("something-else");
         institutionRepository.saveAndFlush(inst);
         Institution reloaded = institutionRepository.findById(inst.getId()).orElseThrow();
         assertThat(reloaded.getName()).isEqualTo("Renamed");
-        assertThat(institutionRepository.findBySlug(original)).isPresent();
-        assertThat(institutionRepository.findBySlug("something-else")).isEmpty();
+        assertThat(institutionRepository.findByHandle(original)).isPresent();
+        assertThat(institutionRepository.findByHandle("something-else")).isEmpty();
     }
 }
