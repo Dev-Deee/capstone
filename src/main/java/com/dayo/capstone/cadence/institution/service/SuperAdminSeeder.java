@@ -22,7 +22,7 @@ import java.util.EnumSet;
 /**
  * Local-development seed, from .env. Ensures — each step independently, so
  * re-running is always a no-op once everything exists:
- *   1. the seed institution (with a slug),
+ *   1. the seed institution (with a handle),
  *   2. the seed user,
  *   3. their SUPER_ADMIN membership in that institution (institution owner).
  * Platform oversight is a different power, seeded separately by
@@ -74,10 +74,10 @@ public class SuperAdminSeeder implements ApplicationRunner {
     private Institution seedInstitution() {
         Institution institution = new Institution();
         institution.setName(institutionName);
-        institution.setSlug(InstitutionOnboardingService.slugify(institutionName));
+        institution.setHandle(InstitutionOnboardingService.toHandle(institutionName));
         institution.setAddress("Lagos, Nigeria");
         Institution saved = institutionRepository.save(institution);
-        log.info("SuperAdminSeeder: seeded Institution '{}' ({})", institutionName, saved.getSlug());
+        log.info("SuperAdminSeeder: seeded Institution '{}' ({})", institutionName, saved.getHandle());
         return saved;
     }
 

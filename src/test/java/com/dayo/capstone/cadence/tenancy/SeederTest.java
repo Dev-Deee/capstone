@@ -31,7 +31,7 @@ class SeederTest extends IntegrationTestBase {
         assertThat(membershipRepository.count()).isEqualTo(memberships);
 
         Institution seeded = institutionRepository.findByName("Seed Institution").orElseThrow();
-        assertThat(seeded.getSlug()).isEqualTo("seed-institution");
+        assertThat(seeded.getHandle()).isEqualTo("seed-institution");
         User admin = userRepository.findByEmail("seed-admin@test.cadence").orElseThrow();
         assertThat(admin.isPlatformAdmin()).isFalse(); // platform admin is seeded separately
         assertThat(membershipRepository.findByUserAndInstitution(admin, seeded).orElseThrow().getRoles())

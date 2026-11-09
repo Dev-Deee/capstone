@@ -202,7 +202,7 @@ public class InviteService {
         boolean accountExists = activeAccount(invite).isPresent();
         return InvitePreviewResponse.builder()
                 .institutionName(invite.getInstitution().getName())
-                .institutionSlug(invite.getInstitution().getSlug())
+                .institutionHandle(invite.getInstitution().getHandle())
                 .role(invite.getRole().name())
                 .email(invite.getEmail())
                 .firstName(invite.getFirstName())

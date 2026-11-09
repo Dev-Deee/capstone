@@ -14,5 +14,5 @@ public class FoundInstitutionRequest {
     private String name;
 
     @NotBlank(message = "Choose an address for your institution")
-    private String slug;
+    private String handle;
 }

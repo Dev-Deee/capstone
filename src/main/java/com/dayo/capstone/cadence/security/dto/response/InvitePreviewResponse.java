@@ -7,7 +7,7 @@ import lombok.Builder;
 @Builder
 public record InvitePreviewResponse(
         String institutionName,
-        String institutionSlug,
+        String institutionHandle,
         String role,
         String email,
         String firstName,
