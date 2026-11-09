@@ -10,6 +10,7 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.ColumnDefault;
 
 import java.time.LocalDateTime;
 
@@ -74,8 +75,12 @@ public class Assignment extends BaseEntity {
     private LocalDateTime publishAt;
 
     // Grading, set at creation. maxMarks applies to MARKS only.
+    // The default lives in @ColumnDefault, not columnDefinition: ddl-auto=update
+    // copies columnDefinition into "alter column ... set data type", which
+    // PostgreSQL rejects when it contains a DEFAULT clause.
     @Enumerated(EnumType.STRING)
-    @Column(name = "grading_type", nullable = false, columnDefinition = "varchar(20) default 'MARKS'")
+    @Column(name = "grading_type", nullable = false, length = 20)
+    @ColumnDefault("'MARKS'")
     private GradingType gradingType = GradingType.MARKS;
 
     @Column(name = "max_marks")
