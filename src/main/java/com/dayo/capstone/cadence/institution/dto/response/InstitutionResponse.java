@@ -16,7 +16,7 @@ import java.util.UUID;
 public record InstitutionResponse(
         UUID publicId,
         String name,
-        String slug,
+        String handle,
         InstitutionStatus status,
         String address,
         GuardianLinkageMode guardianLinkageMode,

@@ -31,10 +31,8 @@ build/
 !**/src/test/**/build/
 
 ### VS Code ###
-.vscode/
 
 ### Environment ###
-.env
 *.env.local
 
 ### macOS / OS ###
@@ -51,4 +49,5 @@ src/main/resources/keys/
 .env_key*
 .claude
 .idea
-.vscode
+config.bat
+node_modules

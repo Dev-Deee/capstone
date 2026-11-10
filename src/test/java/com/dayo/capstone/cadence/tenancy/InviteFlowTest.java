@@ -132,7 +132,7 @@ class InviteFlowTest extends IntegrationTestBase {
         // The invitee founds their own institution before accepting.
         Map<String, Object> signup = new HashMap<>();
         signup.put("institutionName", "Own Place");
-        signup.put("slug", unique("own-place"));
+        signup.put("handle", unique("own-place"));
         signup.put("firstName", "Both");
         signup.put("lastName", "Ways");
         signup.put("email", email);
