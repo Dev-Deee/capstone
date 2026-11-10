@@ -87,7 +87,7 @@ class PlatformAdminTest extends IntegrationTestBase {
     @Test
     void platformAdminIsNeverGrantedBySignUp() {
         Resp r = call("POST", "/api/institutions/signup", Map.of(
-                "institutionName", "Self Serve U", "slug", unique("self-serve"),
+                "institutionName", "Self Serve U", "handle", unique("self-serve"),
                 "firstName", "Founder", "lastName", "One", "email", unique("founder") + "@test.cadence",
                 "phoneNumber", "+234" + String.format("%010d", System.nanoTime() % 10_000_000_000L), "password", PASSWORD, "consentGiven", true), null);
         assertThat(r.status()).isEqualTo(201);

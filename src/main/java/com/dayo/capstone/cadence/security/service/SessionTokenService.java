@@ -44,7 +44,7 @@ public class SessionTokenService {
     /**
      * Where a fresh login lands: the last institution used, else the oldest
      * membership — only among usable (ACTIVE) institutions. Someone whose
-     * every institution is pending or suspended can't sign in; a platform
+     * every institution is suspended can't sign in; a platform
      * admin always can, into the platform console (no institution).
      */
     public Institution defaultInstitutionFor(User user) {
@@ -137,7 +137,7 @@ public class SessionTokenService {
             }
             return Set.of();
         }
-        // Pending or suspended: closed to members (sign-in, switching in,
+        // Suspended: closed to members (sign-in, switching in,
         // accepting an invite, refreshing a session).
         if (!institution.isUsable()) {
             throw new AccessDeniedException(UNAVAILABLE);
@@ -161,7 +161,7 @@ public class SessionTokenService {
                 .roles(roles)
                 .institutionPublicId(institution != null ? institution.getPublicId() : null)
                 .institutionName(institution != null ? institution.getName() : null)
-                .institutionSlug(institution != null ? institution.getSlug() : null)
+                .institutionHandle(institution != null ? institution.getHandle() : null)
                 .platformAdmin(user.isPlatformAdmin())
                 .build();
     }

@@ -5,7 +5,7 @@ import com.dayo.capstone.cadence.audit.service.AuditLogService;
 import com.dayo.capstone.cadence.common.exception.ConflictException;
 import com.dayo.capstone.cadence.institution.dto.request.FoundInstitutionRequest;
 import com.dayo.capstone.cadence.institution.dto.request.InstitutionSignupRequest;
-import com.dayo.capstone.cadence.institution.dto.response.SlugAvailabilityResponse;
+import com.dayo.capstone.cadence.institution.dto.response.HandleAvailabilityResponse;
 import com.dayo.capstone.cadence.institution.model.Institution;
 import com.dayo.capstone.cadence.institution.repository.InstitutionRepository;
 import com.dayo.capstone.cadence.security.dto.response.AuthResponse;
@@ -33,9 +33,9 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class InstitutionOnboardingService {
 
-    private static final Pattern SLUG = Pattern.compile("^[a-z0-9]+(?:-[a-z0-9]+)*$");
-    private static final int SLUG_MIN = 3;
-    private static final int SLUG_MAX = 40;
+    private static final Pattern HANDLE = Pattern.compile("^[a-z0-9]+(?:-[a-z0-9]+)*$");
+    private static final int HANDLE_MIN = 3;
+    private static final int HANDLE_MAX = 40;
     // Words that would clash with routes or impersonate the platform.
     private static final Set<String> RESERVED = Set.of(
             "admin", "api", "app", "www", "login", "logout", "signup", "sign-up", "register", "dashboard",
@@ -63,7 +63,7 @@ public class InstitutionOnboardingService {
         if (userRepository.existsByPhoneNumber(request.getPhoneNumber().trim())) {
             throw new ConflictException("This phone number is already registered");
         }
-        Institution institution = createInstitution(request.getInstitutionName(), request.getSlug());
+        Institution institution = createInstitution(request.getInstitutionName(), request.getHandle());
 
         User founder = new User();
         founder.setFirstName(request.getFirstName().trim());
@@ -91,85 +91,85 @@ public class InstitutionOnboardingService {
      */
     @Transactional
     public AuthResponse found(FoundInstitutionRequest request, User founder, String userAgent, String ipAddress) {
-        Institution institution = createInstitution(request.getName(), request.getSlug());
+        Institution institution = createInstitution(request.getName(), request.getHandle());
         membershipService.add(founder, institution, EnumSet.of(Role.SUPER_ADMIN));
         audit(founder, institution);
         return sessionTokenService.issue(founder, institution, userAgent, ipAddress);
     }
 
     @Transactional(readOnly = true)
-    public SlugAvailabilityResponse checkSlug(String rawSlug) {
-        String slug = rawSlug == null ? "" : rawSlug.trim().toLowerCase(Locale.ROOT);
-        String problem = formatProblem(slug);
+    public HandleAvailabilityResponse checkHandle(String rawHandle) {
+        String handle = rawHandle == null ? "" : rawHandle.trim().toLowerCase(Locale.ROOT);
+        String problem = formatProblem(handle);
         if (problem != null) {
-            String suggestion = slugify(slug);
-            return new SlugAvailabilityResponse(slug, false, problem,
+            String suggestion = toHandle(handle);
+            return new HandleAvailabilityResponse(handle, false, problem,
                     formatProblem(suggestion) == null ? freeVariant(suggestion) : null);
         }
-        if (institutionRepository.existsBySlug(slug)) {
-            return new SlugAvailabilityResponse(slug, false, "That address is already taken", freeVariant(slug));
+        if (institutionRepository.existsByHandle(handle)) {
+            return new HandleAvailabilityResponse(handle, false, "That address is already taken", freeVariant(handle));
         }
-        return new SlugAvailabilityResponse(slug, true, null, null);
+        return new HandleAvailabilityResponse(handle, true, null, null);
     }
 
     /** "Lagos Tech Academy" → "lagos-tech-academy" (accents stripped, punctuation dropped, max length). */
-    public static String slugify(String name) {
+    public static String toHandle(String name) {
         if (name == null) return "";
         String s = Normalizer.normalize(name, Normalizer.Form.NFD).replaceAll("\\p{M}", "")
                 .toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9]+", "-")
                 .replaceAll("(^-+|-+$)", "");
-        if (s.length() > SLUG_MAX) s = s.substring(0, SLUG_MAX).replaceAll("-+$", "");
+        if (s.length() > HANDLE_MAX) s = s.substring(0, HANDLE_MAX).replaceAll("-+$", "");
         return s;
     }
 
     // ── internals ─────────────────────────────────────────────────────────
 
-    private Institution createInstitution(String name, String rawSlug) {
-        String slug = rawSlug == null ? "" : rawSlug.trim().toLowerCase(Locale.ROOT);
-        String problem = formatProblem(slug);
+    private Institution createInstitution(String name, String rawHandle) {
+        String handle = rawHandle == null ? "" : rawHandle.trim().toLowerCase(Locale.ROOT);
+        String problem = formatProblem(handle);
         if (problem != null) {
             throw new IllegalArgumentException(problem);
         }
-        if (institutionRepository.existsBySlug(slug)) {
-            throw slugTaken(slug);
+        if (institutionRepository.existsByHandle(handle)) {
+            throw handleTaken(handle);
         }
         Institution institution = new Institution();
         institution.setName(name.trim());
-        institution.setSlug(slug);
+        institution.setHandle(handle);
         try {
             return institutionRepository.saveAndFlush(institution);
         } catch (DataIntegrityViolationException e) {
-            // Lost a race for the same slug between the check and the insert.
-            throw slugTaken(slug);
+            // Lost a race for the same handle between the check and the insert.
+            throw handleTaken(handle);
         }
     }
 
-    private ConflictException slugTaken(String slug) {
-        return new ConflictException("The address '" + slug + "' is already taken. Try '" + freeVariant(slug) + "'.");
+    private ConflictException handleTaken(String handle) {
+        return new ConflictException("The address '" + handle + "' is already taken. Try '" + freeVariant(handle) + "'.");
     }
 
-    private String formatProblem(String slug) {
-        if (slug.length() < SLUG_MIN || slug.length() > SLUG_MAX) {
-            return "The address must be " + SLUG_MIN + "–" + SLUG_MAX + " characters";
+    private String formatProblem(String handle) {
+        if (handle.length() < HANDLE_MIN || handle.length() > HANDLE_MAX) {
+            return "The address must be " + HANDLE_MIN + "–" + HANDLE_MAX + " characters";
         }
-        if (!SLUG.matcher(slug).matches()) {
+        if (!HANDLE.matcher(handle).matches()) {
             return "Use lowercase letters, numbers and single hyphens only";
         }
-        if (RESERVED.contains(slug)) {
+        if (RESERVED.contains(handle)) {
             return "That address is reserved";
         }
         return null;
     }
 
-    private String freeVariant(String slug) {
-        if (slug.isEmpty()) return null;
-        if (!institutionRepository.existsBySlug(slug) && !RESERVED.contains(slug)) return slug;
+    private String freeVariant(String handle) {
+        if (handle.isEmpty()) return null;
+        if (!institutionRepository.existsByHandle(handle) && !RESERVED.contains(handle)) return handle;
         for (int i = 2; i < 1000; i++) {
             String suffix = "-" + i;
-            String base = slug.length() + suffix.length() > SLUG_MAX ? slug.substring(0, SLUG_MAX - suffix.length()) : slug;
+            String base = handle.length() + suffix.length() > HANDLE_MAX ? handle.substring(0, HANDLE_MAX - suffix.length()) : handle;
             String candidate = base.replaceAll("-+$", "") + suffix;
-            if (!institutionRepository.existsBySlug(candidate)) return candidate;
+            if (!institutionRepository.existsByHandle(candidate)) return candidate;
         }
         return null;
     }
@@ -177,8 +177,8 @@ public class InstitutionOnboardingService {
     private void audit(User founder, Institution institution) {
         auditLogService.log(founder.getPublicId(), "[" + Role.SUPER_ADMIN + "]", AuditAction.INSTITUTION_CREATED,
                 "Institution", institution.getPublicId(), null,
-                "{\"name\":\"" + institution.getName().replace("\"", "\\\"") + "\",\"slug\":\"" + institution.getSlug() + "\"}");
-        log.info("Institution founded: institutionPublicId={}, slug={}, founderPublicId={}",
-                institution.getPublicId(), institution.getSlug(), founder.getPublicId());
+                "{\"name\":\"" + institution.getName().replace("\"", "\\\"") + "\",\"handle\":\"" + institution.getHandle() + "\"}");
+        log.info("Institution founded: institutionPublicId={}, handle={}, founderPublicId={}",
+                institution.getPublicId(), institution.getHandle(), founder.getPublicId());
     }
 }

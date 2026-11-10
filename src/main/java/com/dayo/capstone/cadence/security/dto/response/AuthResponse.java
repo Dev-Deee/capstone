@@ -15,6 +15,6 @@ public record AuthResponse(
         // outside any institution) and whether the user is a platform admin.
         UUID institutionPublicId,
         String institutionName,
-        String institutionSlug,
+        String institutionHandle,
         boolean platformAdmin
 ) {}
