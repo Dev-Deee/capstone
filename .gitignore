@@ -49,5 +49,7 @@ src/main/resources/keys/
 .env_key*
 .claude
 .idea
-config.bat
 node_modules
+.vscode/
+.env
+.vscode
