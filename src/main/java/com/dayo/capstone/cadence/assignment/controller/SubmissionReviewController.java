@@ -3,6 +3,7 @@ package com.dayo.capstone.cadence.assignment.controller;
 import com.dayo.capstone.cadence.assignment.dto.request.RedoExtensionRequest;
 import com.dayo.capstone.cadence.assignment.dto.request.RegradeRequest;
 import com.dayo.capstone.cadence.assignment.dto.request.ReviewSubmissionRequest;
+import com.dayo.capstone.cadence.assignment.dto.response.AssignmentOverviewRow;
 import com.dayo.capstone.cadence.assignment.dto.response.AssignmentResponse;
 import com.dayo.capstone.cadence.assignment.dto.response.ReviewRowResponse;
 import com.dayo.capstone.cadence.assignment.service.SubmissionReviewService;
@@ -34,6 +35,14 @@ public class SubmissionReviewController {
     private final SubmissionReviewService reviewService;
     private final UserService userService;
     private final InstitutionService institutionService;
+
+    // Every assignment in the caller's institution with its waiting count —
+    // the SUPER_ADMIN's way into reviewing any facilitator's work.
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @GetMapping("/api/assignments/review-overview")
+    public ResponseEntity<List<AssignmentOverviewRow>> overview(@AuthenticationPrincipal CadencePrincipal principal) {
+        return ResponseEntity.ok(reviewService.listForInstitution(caller(principal), institution(principal)));
+    }
 
     @GetMapping("/api/assignments/{publicId}/submissions")
     public ResponseEntity<List<ReviewRowResponse>> list(@AuthenticationPrincipal CadencePrincipal principal,
@@ -70,7 +79,7 @@ public class SubmissionReviewController {
 
     @GetMapping("/api/submissions/waiting-count")
     public ResponseEntity<Map<String, Long>> waitingCount(@AuthenticationPrincipal CadencePrincipal principal) {
-        return ResponseEntity.ok(Map.of("waiting", reviewService.waitingCount(caller(principal))));
+        return ResponseEntity.ok(Map.of("waiting", reviewService.waitingCount(caller(principal), institution(principal))));
     }
 
     private User caller(CadencePrincipal principal) {

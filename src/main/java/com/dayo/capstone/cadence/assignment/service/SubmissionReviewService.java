@@ -3,6 +3,7 @@ package com.dayo.capstone.cadence.assignment.service;
 import com.dayo.capstone.cadence.assignment.dto.request.RedoExtensionRequest;
 import com.dayo.capstone.cadence.assignment.dto.request.RegradeRequest;
 import com.dayo.capstone.cadence.assignment.dto.request.ReviewSubmissionRequest;
+import com.dayo.capstone.cadence.assignment.dto.response.AssignmentOverviewRow;
 import com.dayo.capstone.cadence.assignment.dto.response.AssignmentResponse;
 import com.dayo.capstone.cadence.assignment.dto.response.ReviewRowResponse;
 import com.dayo.capstone.cadence.assignment.enums.GradingType;
@@ -34,6 +35,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -199,10 +201,46 @@ public class SubmissionReviewService {
         return assignmentService.getOne(assignmentPublicId, institution);
     }
 
-    // Handed-in work waiting for this facilitator's review, across their assignments.
+    // Handed-in work waiting for review: across the whole institution for a
+    // SUPER_ADMIN (who may review any of it), else across the caller's own assignments.
     @Transactional(readOnly = true)
-    public long waitingCount(User facilitator) {
-        return submissionRepository.countByAssignment_FacilitatorAndStatusIn(facilitator, WAITING);
+    public long waitingCount(User caller, Institution institution) {
+        if (caller.hasRole(Role.SUPER_ADMIN)) {
+            return submissionRepository.countByAssignment_Cohort_InstitutionAndStatusIn(institution, WAITING);
+        }
+        return submissionRepository.countByAssignment_FacilitatorAndStatusIn(caller, WAITING);
+    }
+
+    // Every assignment in the institution with its waiting-for-review count, for a
+    // SUPER_ADMIN choosing what to review. Most waiting first, then nearest deadline.
+    @Transactional(readOnly = true)
+    public List<AssignmentOverviewRow> listForInstitution(User caller, Institution institution) {
+        if (!caller.hasRole(Role.SUPER_ADMIN)) {
+            throw new AccessDeniedException("Only a SUPER_ADMIN may see every assignment in the institution");
+        }
+        Map<Long, Long> waiting = new HashMap<>();
+        for (Object[] row : submissionRepository.countByAssignmentInInstitution(institution, WAITING)) {
+            waiting.put((Long) row[0], (Long) row[1]);
+        }
+        return assignmentRepository.findByCohort_Institution(institution).stream()
+                .map(a -> AssignmentOverviewRow.builder()
+                        .publicId(a.getPublicId())
+                        .title(a.getTitle())
+                        .status(a.getStatus())
+                        .deadline(a.getDeadline())
+                        .publishAt(a.getPublishAt())
+                        .cohortPublicId(a.getCohort().getPublicId())
+                        .cohortName(a.getCohort().getName())
+                        .subjectPublicId(a.getSubject().getPublicId())
+                        .subjectName(a.getSubject().getName())
+                        .facilitatorPublicId(a.getFacilitator().getPublicId())
+                        .facilitatorName(a.getFacilitator().getFullName())
+                        .waiting(waiting.getOrDefault(a.getId(), 0L))
+                        .gradesReleasedAt(a.getGradesReleasedAt())
+                        .build())
+                .sorted(Comparator.comparingLong(AssignmentOverviewRow::waiting).reversed()
+                        .thenComparing(AssignmentOverviewRow::deadline, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
     }
 
     // ── helpers ────────────────────────────────────────────────────────────

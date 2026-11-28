@@ -72,6 +72,8 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
+    // Any signed-in account, including a platform admin outside any institution.
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/change-password")
     public ResponseEntity<Void> changePassword(
             @AuthenticationPrincipal CadencePrincipal principal,
