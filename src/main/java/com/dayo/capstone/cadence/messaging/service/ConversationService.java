@@ -149,7 +149,8 @@ public class ConversationService {
         c.setLastMessageAt(saved.getCreatedAt());
         c.setLastMessagePreview(preview);
         c.setLastMessageSenderId(me.getId());
-        c.markReadBy(me, saved.getId(), LocalDateTime.now()); // my own message is read by me
+        // The sender's read watermark is left alone: their own messages never count as
+        // unread, and a reply sent before polling caught up mustn't hide what they missed.
         conversationRepository.save(c);
 
         domainEvents.publish(new NewMessageEvent(institution.getId(), me.getId(), other.getId(),
