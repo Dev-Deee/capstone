@@ -259,6 +259,12 @@ public class AuthService {
         userRepository.save(user);
         refreshTokenRepository.revokeAllForUser(user, LocalDateTime.now());
 
+        // Never the password itself — only that it changed. A platform admin has
+        // no institution roles, so their role snapshot says so.
+        String role = user.isPlatformAdmin() && user.getRoles().isEmpty() ? "PLATFORM_ADMIN" : user.getRoles().toString();
+        auditLogService.log(userPublicId, role, AuditAction.UPDATE, "UserPassword", userPublicId,
+                null, "{\"passwordChanged\":true,\"sessionsRevoked\":true}");
+
         log.info("Password changed and all sessions revoked: userPublicId={}", userPublicId);
     }
 
