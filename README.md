@@ -70,7 +70,8 @@ out. Producers never know about notifications — adding a channel means adding 
 service ── DomainEvents.publish(event) ──► (after commit, async) NotificationListener
                                                       └─► NotificationService.deliver
                                                              ├─ in-app rows (batch insert, deduped)
-                                                             └─ email, whitelisted types only
+                                                             ├─ email, whitelisted types only
+                                                             └─ Web Push to the recipient's browsers (if configured)
 ```
 
 - **Events** live in `common.event` and extend `DomainEvent` (event id, time, institution, optional actor).
@@ -111,6 +112,57 @@ service ── DomainEvents.publish(event) ──► (after commit, async) Notif
 
 Adding one: create the event in `common.event`, publish it from the service after the change, add a
 `NotificationType` and a handler in `NotificationListener`.
+
+
+### Push notifications (installable app)
+
+Every newly written in-app notification is also sent as a **Web Push** message to each browser the
+recipient turned push on for (the "Push notifications" switch on the web app's Notifications page;
+on iPhone/iPad only from the Home Screen app, iOS 16.4+). It's extra, like email: asynchronous on the
+`eventExecutor`, best-effort, and never affects in-app delivery.
+
+- **Protocol**: RFC 8291 message encryption (`aes128gcm`) + RFC 8292 VAPID, implemented on the JDK
+  alone in `WebPushCrypto` (ECDH P-256, HKDF-SHA256, AES-128-GCM, ES256) — no BouncyCastle or
+  web-push library. It's checked against the RFC 8291 Appendix A test vector.
+- **Payload**: `{ title, body, url, type }`, where `url` is `FRONTEND_URL` + the notification's link.
+- **API** (`/api/push`, signed in): `GET /public-key` → `{ enabled, publicKey }`;
+  `POST /subscriptions` with the browser's `PushSubscription.toJSON()`; `DELETE /subscriptions`
+  with `{ endpoint }` (only your own; idempotent). A subscription belongs to the user, not an
+  institution; the same browser subscribing as another account moves to that account. Up to 10
+  devices per user (the oldest is dropped). Signing out of the web app removes that browser's subscription.
+- **Cleanup**: a subscription the push service answers 404/410 for is deleted; successes stamp `last_success_at`.
+- **Endpoints** must be `https` on a known push service (`PUSH_ALLOWED_HOSTS`), so the server can't
+  be pointed at arbitrary URLs.
+- **Off by default**: without all three VAPID variables the app starts normally, `GET /public-key`
+  says `enabled: false`, subscribing is refused (409) and nothing is sent. A malformed or mismatched
+  key pair logs a WARN at startup and also leaves push off.
+
+| Variable | Notes |
+|---|---|
+| `VAPID_PUBLIC_KEY` | base64url, 65-byte uncompressed P-256 point (starts with `B`, 87 chars) |
+| `VAPID_PRIVATE_KEY` | base64url, 32-byte private scalar (43 chars). **Secret** — Railway only, never in the repo or the frontend |
+| `VAPID_SUBJECT` | a contact for push services: `mailto:you@example.com` or an `https://` URL |
+| `PUSH_ALLOWED_HOSTS` | optional; default `fcm.googleapis.com,android.googleapis.com,push.services.mozilla.com,notify.windows.com,push.apple.com` (suffix match) |
+| `PUSH_TTL_SECONDS` | optional; how long a push service holds an undelivered message, default `86400` |
+| `FRONTEND_URL` | already set; the base of each notification's link |
+
+Set these on the **Railway** API service. Nothing new is needed on **Vercel**: the web app fetches
+the public key from the API.
+
+**Generating a VAPID key pair** (once per environment; keep the same pair afterwards — changing it
+invalidates every existing subscription, and users must turn push on again) with OpenSSL:
+
+```bash
+openssl ecparam -name prime256v1 -genkey -noout -out vapid.pem
+# VAPID_PRIVATE_KEY
+openssl ec -in vapid.pem -outform DER 2>/dev/null | tail -c +8 | head -c 32 | base64 | tr '/+' '_-' | tr -d '=\n'; echo
+# VAPID_PUBLIC_KEY
+openssl ec -in vapid.pem -pubout -outform DER 2>/dev/null | tail -c 65 | base64 | tr '/+' '_-' | tr -d '=\n'; echo
+rm vapid.pem
+```
+
+Any standard Web Push tool's key generator gives the same format (e.g. the `web-push` npm package's
+`generate-vapid-keys`). If the pair doesn't match, the startup log says so and push stays off.
 
 ---
 
