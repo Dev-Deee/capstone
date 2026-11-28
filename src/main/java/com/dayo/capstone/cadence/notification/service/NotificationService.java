@@ -65,7 +65,7 @@ public class NotificationService {
 
     public NotificationService(NotificationRepository repository, MembershipRepository membershipRepository,
                                UserRepository userRepository, JdbcTemplate jdbc, EmailService emailService,
-                               @Value("${app.notifications.email-types:ATTENDANCE_OVERRIDDEN,SUBMISSION_SENT_BACK}") String emailTypes) {
+                               @Value("${app.notifications.email-types:ATTENDANCE_OVERRIDDEN,SUBMISSION_SENT_BACK,ASSIGNMENT_DUE_SOON,ASSIGNMENT_OVERDUE,REDO_DUE_SOON}") String emailTypes) {
         this.repository = repository;
         this.membershipRepository = membershipRepository;
         this.userRepository = userRepository;
