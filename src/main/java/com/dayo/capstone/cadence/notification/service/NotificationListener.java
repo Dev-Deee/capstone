@@ -1,6 +1,8 @@
 package com.dayo.capstone.cadence.notification.service;
 
+import com.dayo.capstone.cadence.common.event.AnnouncementPostedEvent;
 import com.dayo.capstone.cadence.common.event.AttendanceOverriddenEvent;
+import com.dayo.capstone.cadence.common.event.NewMessageEvent;
 import com.dayo.capstone.cadence.common.event.CoursePublishedEvent;
 import com.dayo.capstone.cadence.common.event.GradesReleasedEvent;
 import com.dayo.capstone.cadence.common.event.SubmissionSentBackEvent;
@@ -101,6 +103,30 @@ public class NotificationListener {
                 "New course: " + e.courseTitle(),
                 e.courseTitle() + " is now available in your materials.",
                 "/dashboard/student/learning?tab=materials", e.coursePublicId())).toList());
+    }
+
+    // Collapsed per conversation: while the recipient still has an unread
+    // "new message" notification for it, further messages add nothing.
+    @Async("eventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void on(NewMessageEvent e) {
+        handle(e, () -> notifications.hasUnread(e.recipientId(), e.institutionId(), NotificationType.NEW_MESSAGE, e.conversationPublicId())
+                ? List.of()
+                : List.of(new Draft(
+                        e.recipientId(), NotificationType.NEW_MESSAGE,
+                        "New message from " + e.senderName(),
+                        e.preview(),
+                        "/dashboard/messages?c=" + e.conversationPublicId(), e.conversationPublicId())));
+    }
+
+    @Async("eventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void on(AnnouncementPostedEvent e) {
+        handle(e, () -> e.studentIds().stream().map(id -> new Draft(
+                id, NotificationType.ANNOUNCEMENT_POSTED,
+                "Announcement: " + e.title(),
+                e.authorName() + " posted an announcement to your cohort.",
+                "/dashboard/messages?tab=announcements", e.announcementPublicId())).toList());
     }
 
     private void handle(DomainEvent event, Supplier<List<Draft>> drafts) {
