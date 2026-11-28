@@ -39,6 +39,9 @@ import java.util.stream.Collectors;
  *   use later (PRD 18.9).
  * - Email is extra, only for whitelisted types, and never blocks or replaces
  *   in-app delivery.
+ * - Web Push (PushService) is extra too: every newly written notification is
+ *   also pushed to the recipient's subscribed browsers, asynchronously, when
+ *   VAPID keys are configured.
  */
 @Slf4j
 @Service
@@ -61,16 +64,18 @@ public class NotificationService {
     private final UserRepository userRepository;
     private final JdbcTemplate jdbc;
     private final EmailService emailService;
+    private final PushService pushService;
     private final Set<NotificationType> emailTypes;
 
     public NotificationService(NotificationRepository repository, MembershipRepository membershipRepository,
-                               UserRepository userRepository, JdbcTemplate jdbc, EmailService emailService,
+                               UserRepository userRepository, JdbcTemplate jdbc, EmailService emailService, PushService pushService,
                                @Value("${app.notifications.email-types:ATTENDANCE_OVERRIDDEN,SUBMISSION_SENT_BACK}") String emailTypes) {
         this.repository = repository;
         this.membershipRepository = membershipRepository;
         this.userRepository = userRepository;
         this.jdbc = jdbc;
         this.emailService = emailService;
+        this.pushService = pushService;
         this.emailTypes = Arrays.stream(emailTypes.split(","))
                 .map(String::trim).filter(s -> !s.isEmpty())
                 .map(NotificationType::valueOf)
@@ -117,6 +122,7 @@ public class NotificationService {
         log.info("Notifications delivered: eventId={}, type={}, written={}, skipped={}",
                 event.eventId(), toWrite.get(0).type(), written.size(), drafts.size() - written.size());
         emailWhitelisted(written);
+        if (pushService.enabled() && !written.isEmpty()) pushService.push(List.copyOf(written));
         return written.size();
     }
 
