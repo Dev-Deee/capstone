@@ -97,7 +97,11 @@ service ── DomainEvents.publish(event) ──► (after commit, async) Notif
 | `AttendanceOverriddenEvent` | the student | **wired** (class + resumption overrides) — also emailed by default |
 | `StudentCohortChangedEvent` | the student | **wired** (admin enrols / moves a student) |
 | `InviteAcceptedEvent` | the inviter | **wired** (staff, co-owner and student invites) |
-| Assignment published / due soon / closed | cohort students | later stage |
+| Assignment published / closed | cohort students | later stage |
+| `AssignmentDueSoonEvent` | students who haven't handed in | **wired** (automatic nudge, below) — also emailed by default |
+| `AssignmentOverdueEvent` | students who haven't handed in or asked for more time | **wired** (automatic nudge) — also emailed by default |
+| `RedoDueSoonEvent` | the student | **wired** (automatic nudge) — also emailed by default |
+| `ReviewsWaitingDigestEvent` | the facilitator | **wired** (automatic nudge, in-app only) |
 | `SubmissionSentBackEvent` | the student | **wired** (work sent back to redo; shown at once) — also emailed by default |
 | `GradesReleasedEvent` | each reviewed student | **wired** (facilitator releases an assignment's grades; or one student accepted after release) |
 | `CoursePublishedEvent` | the course's audience (its cohorts, or every student) | **wired** (a course is published, now or on schedule) |
@@ -111,6 +115,25 @@ service ── DomainEvents.publish(event) ──► (after commit, async) Notif
 
 Adding one: create the event in `common.event`, publish it from the service after the change, add a
 `NotificationType` and a handler in `NotificationListener`.
+
+### Automatic nudges
+
+`config/AssignmentNudgeJob` sends reminders on a schedule, across every institution that isn't
+suspended. Students must be actively enrolled in the assignment's cohort; drafts are never nudged.
+
+| Nudge | When | To |
+|---|---|---|
+| `ASSIGNMENT_DUE_SOON` | an OPEN assignment's deadline is within `app.nudges.due-soon-lead` (24 h) | each student with nothing handed in and no approved extension |
+| `ASSIGNMENT_OVERDUE` | `overdue-after` (30 min) to `overdue-window` (24 h) past the deadline, **only while the assignment stays open** (an extension is pending or an approved one runs later — the same test the deadline job uses before auto-closing) | each student with nothing handed in and no extension of their own; it points them to asking for one |
+| `REDO_DUE_SOON` | a sent-back submission's redo-by date is within `redo-lead` (24 h) | the student, if they haven't handed in again (once per redo round) |
+| `REVIEW_WAITING_DIGEST` | daily at 08:00 server time (`app.nudges.digest-cron`) | each facilitator with handed-in work waiting, one per institution: "6 submissions waiting for your review across 2 assignments" |
+
+The deadline nudges run every 5 minutes (`app.nudges.cron`) with windowed queries. Each nudge goes
+to a person at most once: the job first claims a row in `nudge_log` (unique on kind + recipient +
+target, where the target is the assignment, the submission plus its redo round, or the day plus the
+institution) and only notifies if the insert went in, so reruns, restarts and several instances
+never repeat one. A cron set to `-` turns that schedule off (the tests do this). No per-institution
+settings yet.
 
 ---
 

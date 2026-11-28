@@ -1,11 +1,15 @@
 package com.dayo.capstone.cadence.notification.service;
 
+import com.dayo.capstone.cadence.common.event.AssignmentDueSoonEvent;
+import com.dayo.capstone.cadence.common.event.AssignmentOverdueEvent;
 import com.dayo.capstone.cadence.common.event.AttendanceOverriddenEvent;
 import com.dayo.capstone.cadence.common.event.CoursePublishedEvent;
 import com.dayo.capstone.cadence.common.event.GradesReleasedEvent;
 import com.dayo.capstone.cadence.common.event.SubmissionSentBackEvent;
 import com.dayo.capstone.cadence.common.event.DomainEvent;
 import com.dayo.capstone.cadence.common.event.InviteAcceptedEvent;
+import com.dayo.capstone.cadence.common.event.RedoDueSoonEvent;
+import com.dayo.capstone.cadence.common.event.ReviewsWaitingDigestEvent;
 import com.dayo.capstone.cadence.common.event.StudentCohortChangedEvent;
 import com.dayo.capstone.cadence.notification.model.NotificationType;
 import com.dayo.capstone.cadence.notification.service.NotificationService.Draft;
@@ -101,6 +105,54 @@ public class NotificationListener {
                 "New course: " + e.courseTitle(),
                 e.courseTitle() + " is now available in your materials.",
                 "/dashboard/student/learning?tab=materials", e.coursePublicId())).toList());
+    }
+
+    // ── Automatic nudges (AssignmentNudgeJob) ──────────────────────────────
+
+    @Async("eventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void on(AssignmentDueSoonEvent e) {
+        handle(e, () -> e.studentIds().stream().map(id -> new Draft(
+                id, NotificationType.ASSIGNMENT_DUE_SOON,
+                "Due soon: " + e.assignmentTitle(),
+                e.assignmentTitle() + " is due " + e.deadline().format(DAY_TIME)
+                        + " and you haven't handed anything in yet.",
+                "/dashboard/student/learning?tab=assignments&show=due", e.assignmentPublicId())).toList());
+    }
+
+    @Async("eventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void on(AssignmentOverdueEvent e) {
+        handle(e, () -> e.studentIds().stream().map(id -> new Draft(
+                id, NotificationType.ASSIGNMENT_OVERDUE,
+                "Overdue: " + e.assignmentTitle(),
+                "The deadline for " + e.assignmentTitle() + " was " + e.deadline().format(DAY_TIME)
+                        + " and nothing has been handed in. The assignment is still open: "
+                        + "if you need more time, ask your facilitator for an extension.",
+                "/dashboard/student/learning?tab=assignments&show=missed", e.assignmentPublicId())).toList());
+    }
+
+    @Async("eventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void on(RedoDueSoonEvent e) {
+        handle(e, () -> List.of(new Draft(
+                e.studentId(), NotificationType.REDO_DUE_SOON,
+                "Redo due soon: " + e.assignmentTitle(),
+                "Your redo of " + e.assignmentTitle() + " is due " + e.redoDueAt().format(DAY_TIME)
+                        + ". Hand it in again before then.",
+                "/dashboard/student/learning?tab=assignments&show=redo", e.assignmentPublicId())));
+    }
+
+    @Async("eventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void on(ReviewsWaitingDigestEvent e) {
+        String work = e.submissions() + (e.submissions() == 1 ? " submission" : " submissions");
+        handle(e, () -> List.of(new Draft(
+                e.facilitatorId(), NotificationType.REVIEW_WAITING_DIGEST,
+                work + " waiting for review",
+                work + " waiting for your review across " + e.assignments()
+                        + (e.assignments() == 1 ? " assignment." : " assignments."),
+                "/dashboard/facilitator", null)));
     }
 
     private void handle(DomainEvent event, Supplier<List<Draft>> drafts) {
