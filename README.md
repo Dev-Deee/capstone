@@ -101,6 +101,8 @@ service ── DomainEvents.publish(event) ──► (after commit, async) Notif
 | `SubmissionSentBackEvent` | the student | **wired** (work sent back to redo; shown at once) — also emailed by default |
 | `GradesReleasedEvent` | each reviewed student | **wired** (facilitator releases an assignment's grades; or one student accepted after release) |
 | `CoursePublishedEvent` | the course's audience (its cohorts, or every student) | **wired** (a course is published, now or on schedule) |
+| `NewMessageEvent` | the message's recipient | **wired** (`NEW_MESSAGE`, in-app only; collapsed — no new one while one for that conversation is still unread; reading the conversation marks it read) |
+| `AnnouncementPostedEvent` | students actively enrolled in the chosen cohorts | **wired** (`ANNOUNCEMENT_POSTED`, in-app only) |
 | Extension approved / denied | the student | later stage |
 | Extension requested | the facilitator | later stage |
 | Check-in awaiting biometric (still pending after N min) | the student | later stage |
@@ -111,6 +113,55 @@ service ── DomainEvents.publish(event) ──► (after commit, async) Notif
 
 Adding one: create the event in `common.event`, publish it from the service after the change, add a
 `NotificationType` and a handler in `NotificationListener`.
+
+---
+
+## Messaging
+
+Direct 1:1 messages and one-way cohort announcements, both inside the institution the caller is working
+in (`messaging` module). No WebSockets: the web app polls (the open thread every ~10 s, the sidebar
+badge every ~60 s), so every read path is one or two queries.
+
+**Who may message whom** (`MessagingPolicy`, enforced on start *and* on every send). Any one rule is enough:
+
+- staff (facilitator, admin, super admin) ↔ staff;
+- a student ↔ an admin or super admin;
+- a student ↔ a facilitator actively teaching one of the student's active cohorts.
+
+Students never message other students. Both people need an active membership here and a live account;
+roles come from that membership only. A person, conversation or message from another institution — or a
+conversation you're not in — is "not found".
+
+**Model.** `Conversation` (institution, the pair stored in canonical order — lower user id first — so one
+conversation per pair per institution, denormalised last-message preview/time, and a per-participant
+read watermark: the id of the last message read plus when) and `Message` (sender, body ≤ 4000 chars).
+Unread = messages from the other person above my watermark.
+
+**Announcements.** A super admin may post to any cohort here; an admin to cohorts covered by any active
+admin grant (institution-wide or scoped to that cohort); a facilitator to cohorts they actively teach.
+Students actively enrolled in any of the chosen cohorts see it in their feed and get an in-app
+notification. Authors (and super admins) can delete one.
+
+**API**
+
+| Method | Path | What |
+|---|---|---|
+| GET | `/api/conversations` | My conversations (with at least one message), newest first, with last message and unread count |
+| GET | `/api/conversations/unread-count` | `{count}` — unread messages here, for the sidebar badge |
+| GET | `/api/conversations/contacts?q=` | People I may message, filtered by name (max 50) |
+| POST | `/api/conversations` | `{userPublicId}` — get or create the conversation with that person |
+| GET | `/api/conversations/{id}` | One conversation |
+| GET | `/api/conversations/{id}/messages?before=&after=&size=` | Oldest → newest. `after` = polling for new ones; `before` = older history |
+| POST | `/api/conversations/{id}/messages` | `{body}` — send |
+| POST | `/api/conversations/{id}/read` | Mark everything read (also its "new message" notifications) |
+| GET | `/api/announcements/mine` | Student feed (paged) |
+| GET | `/api/announcements/sent` | Staff: what I posted (super admin: all here) |
+| GET | `/api/announcements/audiences` | Cohorts I may post to |
+| POST | `/api/announcements` | `{title, body, cohortPublicIds}` — post |
+| DELETE | `/api/announcements/{id}` | Author or super admin |
+
+Existing databases need `docker/migrations/2026-11-27_messaging.sql` (the notification type CHECK
+constraint); the tables themselves come from `ddl-auto=update`.
 
 ---
 

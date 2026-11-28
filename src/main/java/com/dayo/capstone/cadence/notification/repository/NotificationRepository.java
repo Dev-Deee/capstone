@@ -35,4 +35,17 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     int deleteReadBefore(@Param("cutoff") LocalDateTime cutoff);
 
     boolean existsByDedupeKey(String dedupeKey);
+
+    // Collapsing: is there already an unread notification of this type pointing at this target?
+    @Query("SELECT COUNT(n) FROM Notification n WHERE n.recipient.id = :userId AND n.institution.id = :institutionId "
+            + "AND n.type = :type AND n.linkPublicId = :linkPublicId AND n.readAt IS NULL")
+    long countUnreadFor(@Param("userId") Long userId, @Param("institutionId") Long institutionId,
+                         @Param("type") com.dayo.capstone.cadence.notification.model.NotificationType type,
+                         @Param("linkPublicId") UUID linkPublicId);
+
+    @Modifying
+    @Query("UPDATE Notification n SET n.readAt = :now WHERE n.recipient.id = :userId AND n.institution.id = :institutionId "
+            + "AND n.linkPublicId = :linkPublicId AND n.readAt IS NULL")
+    int markReadForLink(@Param("userId") Long userId, @Param("institutionId") Long institutionId,
+                        @Param("linkPublicId") UUID linkPublicId, @Param("now") LocalDateTime now);
 }

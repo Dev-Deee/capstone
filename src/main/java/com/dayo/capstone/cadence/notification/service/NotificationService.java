@@ -168,4 +168,19 @@ public class NotificationService {
     public int markAllRead(Long userId, Long institutionId) {
         return repository.markAllRead(userId, institutionId, LocalDateTime.now());
     }
+
+    /** True when this user already has an unread notification of this type about this target. */
+    @Transactional(readOnly = true)
+    public boolean hasUnread(Long userId, Long institutionId, NotificationType type, UUID linkPublicId) {
+        return repository.countUnreadFor(userId, institutionId, type, linkPublicId) > 0;
+    }
+
+    /**
+     * Marks read whatever this user's notifications point at {@code linkPublicId}
+     * — e.g. opening a conversation clears its "new message" notification.
+     */
+    @Transactional
+    public int markReadForLink(Long userId, Long institutionId, UUID linkPublicId) {
+        return repository.markReadForLink(userId, institutionId, linkPublicId, LocalDateTime.now());
+    }
 }
